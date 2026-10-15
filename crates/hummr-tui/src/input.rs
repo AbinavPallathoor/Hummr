@@ -53,7 +53,7 @@ fn normal(app: &mut App, key: KeyEvent) {
             let from = app.notes().get(app.selected).map(|n| n.note.start_beats);
             return app.play_from_beat(from);
         }
-        KeyCode::Char('0') => return app.fit_view(),
+        KeyCode::Char('z') => return app.fit_view(),
         KeyCode::Home => return app.scrub_to(0.0),
         KeyCode::Char('{') => return app.scrub(-4.0),
         KeyCode::Char('}') => return app.scrub(4.0),
@@ -92,11 +92,14 @@ fn normal(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Char('[') => app.scrub(-1.0),
         KeyCode::Char(']') => app.scrub(1.0),
-        KeyCode::Char('h') | KeyCode::Left => app.select(-1),
-        KeyCode::Char('l') | KeyCode::Right => app.select(1),
-        KeyCode::Char('g') => app.selected = 0,
+        // Vim motions: h/l or b/n step through notes, 0/^ and $ (or g/G)
+        // jump to the first and last note. The playhead follows.
+        KeyCode::Char('h') | KeyCode::Char('b') | KeyCode::Left => app.select(-1),
+        KeyCode::Char('l') | KeyCode::Char('n') | KeyCode::Right => app.select(1),
+        KeyCode::Char('0') | KeyCode::Char('^') | KeyCode::Char('g') => app.jump_to_first(),
+        KeyCode::Char('$') => app.jump_to_last(),
         KeyCode::Char('a') => app.add_note(),
-        KeyCode::Char('G') | KeyCode::End => app.selected = app.notes().len().saturating_sub(1),
+        KeyCode::Char('G') | KeyCode::End => app.jump_to_last(),
         KeyCode::Char('k') | KeyCode::Up => app.transpose(1),
         KeyCode::Char('j') | KeyCode::Down => app.transpose(-1),
         KeyCode::Char('K') => app.transpose(12),

@@ -122,9 +122,10 @@ recording and adding notes all start there.
 |---|---|
 | `space` | Play / stop from the playhead |
 | `[` `]`  `{` `}` | Move the playhead a beat / a bar (`Home` goes to the start) |
-| `0` | Zoom out to show every note of every track (`+` / `-` zoom) |
+| `z` | Zoom out to show every note of every track (`+` / `-` zoom) |
 | `1`–`9` | Switch track |
-| `h` `l` | Previous / next note |
+| `h` `l` or `b` `n` | Previous / next note |
+| `0` (or `^`) / `$` | First / last note of the track (`g` / `G` work too) |
 | `tab` | Next panel: roll → tracker → mixer |
 
 ### Editing notes

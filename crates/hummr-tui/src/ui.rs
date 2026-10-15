@@ -1163,7 +1163,8 @@ fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("D", "delete track"),
                     ("u", "undo"),
                     ("+/-", "zoom"),
-                    ("0", "show all"),
+                    ("0/$", "first/last"),
+                    ("z", "show all"),
                 ]);
             }
             h.extend([
@@ -1304,7 +1305,7 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         key("R", "re-record this track"),
         key("space", "play / stop at ▼"),
         key("[ ] { }", "scrub beat / bar"),
-        key("0", "show all notes"),
+        key("z", "show all notes"),
         key("home", "playhead to start"),
         key("1-9", "switch track"),
         key("D", "delete track (u undoes)"),
@@ -1317,7 +1318,8 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         Line::raw(""),
         head("Notes"),
         key("a", "add a note at ▼"),
-        key("h l", "previous / next"),
+        key("h l b n", "previous / next"),
+        key("0 ^ $", "first / last note"),
         key("j k", "pitch down / up"),
         key("J K", "octave down / up"),
         key("< >", "shorter / longer"),

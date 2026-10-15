@@ -1442,7 +1442,27 @@ impl App {
         ));
     }
 
-    /// `0`: zooms the roll out so every note of every track is in view.
+    /// `0` / `^`: selects the first note of the track; the playhead follows.
+    pub fn jump_to_first(&mut self) {
+        if self.notes().is_empty() {
+            return self.scrub_to(0.0);
+        }
+        self.selected = 0;
+        let start = self.notes()[0].start();
+        self.scrub_to(start);
+    }
+
+    /// `$`: selects the last note of the track; the playhead follows.
+    pub fn jump_to_last(&mut self) {
+        let Some(last) = self.notes().len().checked_sub(1) else {
+            return;
+        };
+        self.selected = last;
+        let start = self.notes()[last].start();
+        self.scrub_to(start);
+    }
+
+    /// `z`: zooms the roll out so every note of every track is in view.
     pub fn fit_view(&mut self) {
         self.view_fit = true;
         self.view_follow = false;
@@ -2100,6 +2120,20 @@ mod tests {
         assert_eq!(plan.at_beat, 2.0);
         feed(&mut app, plan, &[(72, 2.0)]);
         assert_eq!(pitches(&app, 1), vec![(72, 2.0)]);
+    }
+
+    #[test]
+    fn vim_motions_jump_to_first_and_last_note() {
+        let mut app = app_with_notes(); // notes at beats 0, 1, 2
+        app.jump_to_last();
+        assert_eq!((app.selected, app.cursor), (2, 2.0));
+        app.jump_to_first();
+        assert_eq!((app.selected, app.cursor), (0, 0.0));
+        let mut empty = new_app();
+        empty.cursor = 5.0;
+        empty.jump_to_first();
+        assert_eq!(empty.cursor, 0.0);
+        empty.jump_to_last(); // nothing to jump to, no panic
     }
 
     #[test]
