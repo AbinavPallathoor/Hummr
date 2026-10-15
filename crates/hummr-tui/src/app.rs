@@ -88,6 +88,8 @@ pub enum FxKey {
 pub struct Areas {
     pub roll: Rect,
     pub roll_grid: Rect,
+    /// Track tabs above the roll, for mouse clicks.
+    pub tabs: [Option<(Rect, usize)>; 16],
     /// The bar ruler above the roll (click to move the playhead).
     pub ruler: Rect,
     pub lower: Rect,
@@ -102,6 +104,8 @@ pub struct RollView {
     pub left_beat: f64,
     /// Beats per terminal column.
     pub zoom: f64,
+    /// Semitones per row (more than 1 when zoomed out to see everything).
+    pub pitch_step: u8,
 }
 
 /// Where and how a recording will be placed.
@@ -287,6 +291,7 @@ impl App {
                 top_pitch: 76,
                 left_beat: 0.0,
                 zoom: 0.25,
+                pitch_step: 1,
             },
             view_follow: true,
             view_fit: false,
@@ -1301,6 +1306,117 @@ impl App {
         }
     }
 
+    /// Makes sure there is a track to put notes on.
+    fn ensure_track(&mut self) {
+        if self.tracks.is_empty() {
+            self.tracks.push(Track::new(40));
+            self.sync_strips();
+            self.cur = 0;
+        }
+    }
+
+    /// `a`: adds a note at the playhead on the current track. It takes the
+    /// pitch of the note before it (so you can then nudge it with j/k) and
+    /// moves the playhead to its end, so pressing `a` again writes the next.
+    pub fn add_note(&mut self) {
+        self.ensure_track();
+        let g = self.grid_beats();
+        let start = (self.cursor / g + 1e-9).floor() * g;
+        let pitch = self
+            .notes()
+            .iter()
+            .rev()
+            .find(|n| n.start() < start + 1e-9)
+            .or_else(|| self.notes().get(self.selected))
+            .map_or(60, |n| n.note.pitch);
+        let len = g.max(1.0);
+        self.add_note_at(pitch, start, len);
+        self.cursor = start + len;
+        let name = self.key.map_or_else(
+            || hummr_core::theory::note_name(pitch),
+            |k| k.note_name(pitch),
+        );
+        self.info(format!(
+            "added {name} at {}: j/k pitch, < > length, a for the next note",
+            position(start)
+        ));
+    }
+
+    /// Adds one note to the current track and selects it.
+    pub fn add_note_at(&mut self, pitch: u8, start: f64, beats: f64) {
+        self.ensure_track();
+        self.checkpoint();
+        let note = EditNote {
+            note: SeqNote {
+                pitch,
+                start_beats: start.max(0.0),
+                duration_beats: beats,
+                velocity: 96,
+            },
+            sung: None,
+        };
+        let cur = self.cur;
+        self.tracks[cur].notes.push(note);
+        self.tracks[cur].sort();
+        self.selected = self.notes().iter().position(|n| *n == note).unwrap_or(0);
+        self.fx(FxRequest::NoteFlash(self.selected));
+    }
+
+    /// `:notes C4 1/4 E4 1/8 r 1/8`: types a phrase in at the playhead.
+    fn type_notes(&mut self, text: &str) {
+        let items = match hummr_core::notation::parse(text) {
+            Ok(items) => items,
+            Err(e) => return self.error(e.to_string()),
+        };
+        self.ensure_track();
+        self.checkpoint();
+        let start = self.cursor;
+        let mut at = start;
+        let mut added = 0;
+        let cur = self.cur;
+        for item in items {
+            match item {
+                hummr_core::notation::Item::Note { pitch, beats } => {
+                    self.tracks[cur].notes.push(EditNote {
+                        note: SeqNote {
+                            pitch,
+                            start_beats: at,
+                            duration_beats: beats,
+                            velocity: 96,
+                        },
+                        sung: None,
+                    });
+                    added += 1;
+                    at += beats;
+                }
+                hummr_core::notation::Item::Rest { beats } => at += beats,
+            }
+        }
+        self.tracks[cur].sort();
+        self.selected = self
+            .notes()
+            .iter()
+            .position(|n| (n.start() - start).abs() < 1e-9)
+            .unwrap_or(0);
+        self.cursor = at;
+        self.view_follow = true;
+        self.info(format!(
+            "typed {added} note{} into track {} from {}",
+            if added == 1 { "" } else { "s" },
+            cur + 1,
+            position(start)
+        ));
+    }
+
+    /// `0`: zooms the roll out so every note of every track is in view.
+    pub fn fit_view(&mut self) {
+        self.view_fit = true;
+        self.view_follow = false;
+        if self.note_count() == 0 {
+            self.info("no notes to show yet");
+        }
+    }
+
     /// `M`: joins the selected note with the next one into one held note,
     /// e.g. when a voice crack split a long note in two.
     pub fn join_next(&mut self) {
@@ -1609,6 +1725,7 @@ impl App {
             },
             Cmd::Track(arg) => self.track_command(&arg),
             Cmd::Transpose(n) => self.transpose_track(n),
+            Cmd::Notes(text) => self.type_notes(&text),
             Cmd::Record(Placement::Overlay) => self.press_record(),
             Cmd::Record(Placement::Overwrite) => self.press_record_overwrite(),
             Cmd::Play => self.play_from_beat(None),
@@ -1997,6 +2114,28 @@ mod tests {
         app.execute(command::parse(":track del").unwrap());
         assert_eq!(app.tracks.len(), 1);
         assert_eq!(app.strips.len(), 1);
+    }
+
+    #[test]
+    fn adding_notes_by_hand() {
+        let mut app = new_app();
+        app.add_note();
+        assert_eq!(app.tracks.len(), 1, "a track is created on demand");
+        assert_eq!(pitches(&app, 0), vec![(60, 0.0)]);
+        app.transpose(4);
+        app.add_note();
+        app.add_note();
+        assert_eq!(pitches(&app, 0), vec![(64, 0.0), (64, 1.0), (64, 2.0)]);
+        assert_eq!(app.cursor, 3.0);
+        assert_eq!(app.selected, 2);
+        app.execute(command::parse(":notes G4 1/8 r 1/8 C5 1/2").unwrap());
+        assert_eq!(&pitches(&app, 0)[3..], &[(67, 3.0), (72, 4.0)]);
+        assert_eq!(app.notes()[4].note.duration_beats, 2.0);
+        assert_eq!(app.cursor, 6.0);
+        app.undo();
+        assert_eq!(app.notes().len(), 3);
+        app.execute(command::parse(":notes Q9 1/4").unwrap());
+        assert_eq!(app.message.as_ref().unwrap().1, Level::Error);
     }
 
     #[test]

@@ -53,7 +53,8 @@ fn normal(app: &mut App, key: KeyEvent) {
             let from = app.notes().get(app.selected).map(|n| n.note.start_beats);
             return app.play_from_beat(from);
         }
-        KeyCode::Char('0') => return app.scrub_to(0.0),
+        KeyCode::Char('0') => return app.fit_view(),
+        KeyCode::Home => return app.scrub_to(0.0),
         KeyCode::Char('{') => return app.scrub(-4.0),
         KeyCode::Char('}') => return app.scrub(4.0),
         KeyCode::Char('i') => return app.open_picker(),
@@ -92,7 +93,8 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char(']') => app.scrub(1.0),
         KeyCode::Char('h') | KeyCode::Left => app.select(-1),
         KeyCode::Char('l') | KeyCode::Right => app.select(1),
-        KeyCode::Char('g') | KeyCode::Home => app.selected = 0,
+        KeyCode::Char('g') => app.selected = 0,
+        KeyCode::Char('a') => app.add_note(),
         KeyCode::Char('G') | KeyCode::End => app.selected = app.notes().len().saturating_sub(1),
         KeyCode::Char('k') | KeyCode::Up => app.transpose(1),
         KeyCode::Char('j') | KeyCode::Down => app.transpose(-1),
@@ -106,7 +108,12 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('M') => app.join_next(),
         KeyCode::Char('D') => app.delete_track(),
         KeyCode::Char('+') | KeyCode::Char('=') => {
-            app.view.zoom = (app.view.zoom / 2.0).max(1.0 / 32.0)
+            // Zoom in: back to one semitone per row first, then in time.
+            if app.view.pitch_step > 1 {
+                app.view.pitch_step = 1;
+            } else {
+                app.view.zoom = (app.view.zoom / 2.0).max(1.0 / 32.0);
+            }
         }
         KeyCode::Char('-') | KeyCode::Char('_') => app.view.zoom = (app.view.zoom * 2.0).min(2.0),
         _ => {}
@@ -175,10 +182,39 @@ pub fn on_mouse(app: &mut App, ev: MouseEvent) {
                 app.view.left_beat + f64::from(ev.column - app.areas.ruler.x) * app.view.zoom;
             app.scrub_to((beat / app.grid_beats()).round() * app.grid_beats());
         }
+        MouseEventKind::Down(MouseButton::Left)
+            if app
+                .areas
+                .tabs
+                .iter()
+                .flatten()
+                .any(|(r, _)| r.contains(pos)) =>
+        {
+            if let Some((_, t)) = app
+                .areas
+                .tabs
+                .iter()
+                .flatten()
+                .find(|(r, _)| r.contains(pos))
+            {
+                app.select_track(*t);
+            }
+        }
+        MouseEventKind::Down(MouseButton::Right) if grid.contains(pos) => {
+            // Right-click on the roll adds a note there, snapped to the grid.
+            let g = app.grid_beats();
+            let beat = app.view.left_beat + f64::from(ev.column - grid.x) * app.view.zoom;
+            let pitch = i32::from(app.view.top_pitch)
+                - i32::from(ev.row - grid.y) * i32::from(app.view.pitch_step.max(1));
+            if (0..=127).contains(&pitch) {
+                app.add_note_at(pitch as u8, (beat / g).floor() * g, g.max(1.0));
+            }
+        }
         MouseEventKind::Down(MouseButton::Left) if grid.contains(pos) => {
             app.focus = Focus::Roll;
             let beat = app.view.left_beat + f64::from(ev.column - grid.x) * app.view.zoom;
-            let pitch = i32::from(app.view.top_pitch) - i32::from(ev.row - grid.y);
+            let pitch = i32::from(app.view.top_pitch)
+                - i32::from(ev.row - grid.y) * i32::from(app.view.pitch_step.max(1));
             // Pick the note under the cursor (on any track, switching to
             // it), else the nearest note in time on the current track.
             let under = |n: &crate::song::EditNote| {
@@ -216,10 +252,14 @@ pub fn on_mouse(app: &mut App, ev: MouseEvent) {
             app.focus = Focus::Mixer
         }
         MouseEventKind::ScrollUp if grid.contains(pos) => {
-            app.view.top_pitch = app.view.top_pitch.saturating_add(2).min(127)
+            app.view.top_pitch = app
+                .view
+                .top_pitch
+                .saturating_add(2 * app.view.pitch_step)
+                .min(127)
         }
         MouseEventKind::ScrollDown if grid.contains(pos) => {
-            app.view.top_pitch = app.view.top_pitch.saturating_sub(2)
+            app.view.top_pitch = app.view.top_pitch.saturating_sub(2 * app.view.pitch_step)
         }
         MouseEventKind::ScrollLeft if grid.contains(pos) => {
             app.view.left_beat = (app.view.left_beat - 1.0).max(0.0)

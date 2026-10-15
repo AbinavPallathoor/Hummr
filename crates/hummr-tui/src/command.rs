@@ -20,6 +20,8 @@ pub enum Cmd {
     /// `:track`, `:track 2`, `:track new cello`, `:track del`, `:track name Bass`.
     Track(String),
     Transpose(i32),
+    /// `:notes C4 1/4 E4 1/8`: type notes in at the playhead.
+    Notes(String),
     /// `:record` (new layer) or `:record overwrite` (this track).
     Record(Placement),
     Play,
@@ -32,13 +34,14 @@ pub enum Cmd {
 }
 
 /// Names shown in suggestions, with their usage.
-pub const COMMANDS: [(&str, &str); 18] = [
+pub const COMMANDS: [(&str, &str); 19] = [
     ("w", ":w [file.mid]       save MIDI"),
     ("q", ":q  :q!             quit / discard"),
     ("wq", ":wq                 save + quit"),
     ("export", ":export song.wav    WAV or .mid"),
     ("open", ":open take.wav      .wav or .mid"),
     ("record", ":record [overwrite] same as r / R"),
+    ("notes", ":notes C4 1/4 E4    type notes at ▼"),
     ("track", ":track new cello    or 2, del, name X"),
     ("instrument", ":instrument violin  same as i"),
     ("transpose", ":transpose -12      shift this track"),
@@ -93,6 +96,7 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
             _ => return Err("usage: :record (new layer) or :record overwrite (this track)".into()),
         }),
         "track" | "tr" => Cmd::Track(arg.to_string()),
+        "notes" | "n" | "note" => Cmd::Notes(need(arg, ":notes C4 1/4 E4 1/8 r 1/8 G4 1/2")?),
         "transpose" | "tp" => Cmd::Transpose(
             arg.trim_start_matches('+')
                 .parse()
@@ -175,6 +179,7 @@ mod tests {
             Ok(Cmd::Track("new cello".into()))
         );
         assert_eq!(parse(":transpose +12"), Ok(Cmd::Transpose(12)));
+        assert_eq!(parse(":notes C4 1/4"), Ok(Cmd::Notes("C4 1/4".into())));
         assert!(parse(":transpose up").is_err());
         assert!(parse(":record sideways").is_err());
     }

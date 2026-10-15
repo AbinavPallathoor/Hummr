@@ -297,11 +297,17 @@ fn is_black(pitch: u8) -> bool {
     matches!(pitch % 12, 1 | 3 | 6 | 8 | 10)
 }
 
+/// Roll row (0 = top) that shows `pitch`.
+fn row_of(app: &App, pitch: u8) -> i32 {
+    (i32::from(app.view.top_pitch) - i32::from(pitch))
+        .div_euclid(i32::from(app.view.pitch_step.max(1)))
+}
+
 /// Screen rect of a note in the roll, if visible.
 fn note_rect(app: &App, i: usize) -> Option<Rect> {
     let n = app.notes().get(i)?.note;
     let g = app.areas.roll_grid;
-    let row = i32::from(app.view.top_pitch) - i32::from(n.pitch);
+    let row = row_of(app, n.pitch);
     if row < 0 || row >= i32::from(g.height) {
         return None;
     }
@@ -325,14 +331,15 @@ fn note_rect(app: &App, i: usize) -> Option<Rect> {
 fn update_view(app: &mut App, rows: i32, cols: f64) {
     let zoom = app.view.zoom;
     let span = cols * zoom;
-    let clamp_top = |t: i32| t.clamp((rows - 1).min(127), 127) as u8;
+    let step = i32::from(app.view.pitch_step.max(1));
+    let clamp_top = |t: i32| t.clamp((rows * step - 1).min(127), 127) as u8;
 
     if app.is_recording() {
         if let Some(m) = app.live_pitch.value {
             let m = m.round() as i32;
             let top = i32::from(app.view.top_pitch);
-            if m > top - 2 || m < top - rows + 3 {
-                app.view.top_pitch = clamp_top(m + rows / 2);
+            if m > top - 2 || m < top - rows * step + 3 {
+                app.view.top_pitch = clamp_top(m + rows * step / 2);
             }
         }
         if let Some(head) = app.record_beat {
@@ -347,16 +354,21 @@ fn update_view(app: &mut App, rows: i32, cols: f64) {
         let all = || app.tracks.iter().flat_map(|t| t.notes.iter());
         let hi = all().map(|n| i32::from(n.note.pitch)).max().unwrap_or(72);
         let lo = all().map(|n| i32::from(n.note.pitch)).min().unwrap_or(60);
+        // Squeeze several semitones into a row if that is what it takes.
         let span_rows = hi - lo + 1;
-        app.view.top_pitch = clamp_top(if span_rows <= rows {
-            hi + (rows - span_rows) / 2
+        let fit_step = ((span_rows + rows - 1) / rows.max(1)).clamp(1, 12);
+        app.view.pitch_step = fit_step as u8;
+        let visible = rows * fit_step;
+        let top = if span_rows <= visible {
+            hi + (visible - span_rows) / 2
         } else {
-            hi + 1
-        });
+            hi
+        };
+        app.view.top_pitch = top.clamp((visible - 1).min(127), 127) as u8;
         let end = app.tracks.iter().map(|t| t.end_beats()).fold(0.0, f64::max);
-        // Zoom so the whole take fits if that keeps notes readable.
+        // The most detailed zoom at which every note of every track fits.
         let mut z = 0.25;
-        while end / z > cols && z < 1.0 {
+        while (end + z) / z > cols && z < 2.0 {
             z *= 2.0;
         }
         app.view.zoom = z;
@@ -378,8 +390,8 @@ fn update_view(app: &mut App, rows: i32, cols: f64) {
         if let Some(n) = app.notes().get(app.selected).map(|n| n.note) {
             let top = i32::from(app.view.top_pitch);
             let p = i32::from(n.pitch);
-            if p > top || p <= top - rows {
-                app.view.top_pitch = clamp_top(p + rows / 2);
+            if p > top || p <= top - rows * step {
+                app.view.top_pitch = clamp_top(p + rows * step / 2);
             }
             let end = n.start_beats + n.duration_beats;
             if n.start_beats < app.view.left_beat {
@@ -392,34 +404,34 @@ fn update_view(app: &mut App, rows: i32, cols: f64) {
 }
 
 fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
-    let col_len = format_length(app.view.zoom);
-    let title = match app.track() {
-        Some(t) if app.tracks.len() > 1 => format!(
-            "Piano roll · editing {} {} · 1 col = {col_len}",
-            app.cur + 1,
-            t.display_name()
-        ),
-        _ => format!("Piano roll · 1 col = {col_len}"),
-    };
-    let block = panel(&title, app.focus == Focus::Roll);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = panel("", false).inner(area);
     let gutter = 5u16;
-    if inner.width <= gutter + 4 || inner.height < 2 {
+    if inner.width <= gutter + 4 || inner.height < 3 {
         return;
     }
-    let ruler = Rect::new(inner.x + gutter, inner.y, inner.width - gutter, 1);
+    // Row 0: track tabs, row 1: bar ruler, then the note grid.
+    let tabs_row = Rect::new(inner.x, inner.y, inner.width, 1);
+    let ruler = Rect::new(inner.x + gutter, inner.y + 1, inner.width - gutter, 1);
     let grid = Rect::new(
         inner.x + gutter,
-        inner.y + 1,
+        inner.y + 2,
         inner.width - gutter,
-        inner.height - 1,
+        inner.height - 2,
     );
     app.areas.roll = inner;
     app.areas.roll_grid = grid;
     app.areas.ruler = ruler;
     let rows = i32::from(grid.height);
     update_view(app, rows, f64::from(grid.width));
+    let mut title = format!("Piano roll · 1 col = {}", format_length(app.view.zoom));
+    if app.view.pitch_step > 1 {
+        title.push_str(&format!(
+            " · {} semitones per row (+ to zoom in)",
+            app.view.pitch_step
+        ));
+    }
+    f.render_widget(panel(&title, app.focus == Focus::Roll), area);
+    let step = i32::from(app.view.pitch_step.max(1));
 
     let buf = f.buffer_mut();
     let top = i32::from(app.view.top_pitch);
@@ -432,10 +444,42 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
         app.cursor
     });
 
+    // Track tabs: one per instrument, numbered like the 1-9 keys.
+    app.areas.tabs = [None; 16];
+    let mut x = tabs_row.x;
+    buf.set_string(x, tabs_row.y, "trk ", Style::default().fg(FAINT));
+    x += 4;
+    for (i, t) in app.tracks.iter().enumerate() {
+        let label = format!(" {} {} ", i + 1, t.display_name());
+        let w = label.chars().count() as u16;
+        if x + w + 1 > tabs_row.right() {
+            buf.set_string(x, tabs_row.y, "…", Style::default().fg(DIM));
+            break;
+        }
+        let style = if i == app.cur {
+            Style::default()
+                .fg(BG)
+                .bg(track_color(i))
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(scale(track_color(i), 0.6))
+                .bg(Color::Rgb(28, 28, 38))
+        };
+        buf.set_string(x, tabs_row.y, &label, style);
+        if let Some(slot) = app.areas.tabs.get_mut(i) {
+            *slot = Some((Rect::new(x, tabs_row.y, w, 1), i));
+        }
+        x += w + 1;
+    }
+    if app.tracks.is_empty() {
+        buf.set_string(x, tabs_row.y, "no tracks yet", Style::default().fg(FAINT));
+    }
+
     // Ruler: bar numbers, beat ticks and the playhead marker.
     buf.set_string(
         inner.x,
-        inner.y,
+        ruler.y,
         "bar ▏",
         Style::default().fg(FAINT).bg(PANEL),
     );
@@ -490,23 +534,38 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     for r in 0..rows {
-        let p = top - r;
+        let p = top - r * step;
         if !(0..=127).contains(&p) {
             continue;
         }
         let p = p as u8;
+        // When a row holds several semitones, label it by the C inside it.
+        let row_pitches = || {
+            (0..step)
+                .map(move |k| i32::from(p) - k)
+                .filter(|q| *q >= 0)
+                .map(|q| q as u8)
+        };
+        let has_sel = sel_pitch.is_some_and(|s| row_pitches().any(|q| q == s));
         let y = grid.y + r as u16;
-        let in_key = app.key.is_none_or(|k| k.contains(p));
+        let in_key = step > 1 || app.key.is_none_or(|k| k.contains(p));
         // Keyboard gutter.
-        let name = app.key.map_or_else(|| note_name(p), |k| k.note_name(p));
-        let (kfg, kbg) = if Some(p) == sel_pitch {
+        let shown = if step == 1 {
+            Some(p)
+        } else {
+            row_pitches().find(|q| q % 12 == 0)
+        };
+        let name = shown.map_or_else(String::new, |q| {
+            app.key.map_or_else(|| note_name(q), |k| k.note_name(q))
+        });
+        let (kfg, kbg) = if has_sel {
             (BG, ACCENT)
         } else if is_black(p) {
             (DIM, Color::Rgb(28, 28, 34))
         } else {
             (Color::Rgb(40, 40, 52), Color::Rgb(196, 196, 206))
         };
-        let label = if p % 12 == 0 || Some(p) == sel_pitch || in_key && app.key.is_some() {
+        let label = if step > 1 || p % 12 == 0 || has_sel || in_key && app.key.is_some() {
             format!("{name:<4}")
         } else {
             "    ".to_string()
@@ -538,10 +597,11 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
         if ti == app.cur {
             continue;
         }
-        let color = scale(track_color(ti), 0.45);
+        // Dulled: the same blocks as the current track, much darker.
+        let color = scale(track_color(ti), 0.32);
         for en in &track.notes {
             let n = en.note;
-            let row = top - i32::from(n.pitch);
+            let row = row_of(app, n.pitch);
             if row < 0 || row >= rows {
                 continue;
             }
@@ -549,9 +609,12 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
             let x1 = ((n.start_beats + n.duration_beats - left) / zoom).ceil() as i64 - 1;
             for x in x0.max(0)..=x1.min(i64::from(grid.width) - 1) {
                 if let Some(cell) = buf.cell_mut((grid.x + x as u16, grid.y + row as u16)) {
-                    cell.set_symbol(if x == x0 { "▕" } else { "▔" })
-                        .set_fg(color)
-                        .set_bg(scale(color, 0.45));
+                    if x == x1 && x1 > x0 {
+                        let row_bg = cell.bg;
+                        cell.set_symbol("▊").set_fg(color).set_bg(row_bg);
+                    } else {
+                        cell.set_symbol(" ").set_bg(color);
+                    }
                 }
             }
         }
@@ -560,7 +623,7 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
     // Notes of the current track.
     for (i, en) in app.notes().iter().enumerate() {
         let n = en.note;
-        let row = top - i32::from(n.pitch);
+        let row = row_of(app, n.pitch);
         if row < 0 || row >= rows {
             continue;
         }
@@ -606,7 +669,7 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
         for &(beat, m) in &app.contour {
             let Some(m) = m else { continue };
             let x = ((beat - left) / zoom).floor();
-            let row = top - m.round() as i32;
+            let row = (top - m.round() as i32).div_euclid(step);
             if x >= 0.0 && x < f64::from(grid.width) && (0..rows).contains(&row) {
                 if let Some(cell) = buf.cell_mut((grid.x + x as u16, grid.y + row as u16)) {
                     cell.set_symbol("•").set_fg(RED);
@@ -1094,11 +1157,13 @@ fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("J/K", "octave"),
                     ("< >", "length"),
                     ("H/L", "move"),
+                    ("a", "add note"),
                     ("x", "delete"),
                     ("M", "join next"),
                     ("D", "delete track"),
                     ("u", "undo"),
                     ("+/-", "zoom"),
+                    ("0", "show all"),
                 ]);
             }
             h.extend([
@@ -1234,7 +1299,8 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         key("R", "re-record this track"),
         key("space", "play / stop at ▼"),
         key("[ ] { }", "scrub beat / bar"),
-        key("0", "playhead to start"),
+        key("0", "show all notes"),
+        key("home", "playhead to start"),
         key("1-9", "switch track"),
         key("D", "delete track (u undoes)"),
         key("i", "instrument"),
@@ -1244,6 +1310,7 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         key("q", "quit"),
         Line::raw(""),
         head("Notes"),
+        key("a", "add a note at ▼"),
         key("h l", "previous / next"),
         key("j k", "pitch down / up"),
         key("J K", "octave down / up"),
@@ -1341,7 +1408,7 @@ mod tests {
         a.animations = false;
         a.cursor = 4.0;
         let screen = render(&mut a, 110, 34);
-        let ruler = screen.lines().nth(2).unwrap();
+        let ruler = screen.lines().nth(3).unwrap();
         assert!(ruler.contains('▼'), "{ruler}");
         assert!(ruler.contains(" 3"), "bar numbers: {ruler}");
         assert!(screen.contains("■ bar 2 beat 1"), "{screen}");
@@ -1357,7 +1424,11 @@ mod tests {
         assert!(screen.contains("2 Electric"), "{screen}");
         assert!(screen.contains("1 Violin"), "{screen}");
         assert!(screen.contains("voice"));
-        assert!(screen.contains("editing 2"));
+        let tabs = screen.lines().nth(2).unwrap();
+        assert!(
+            tabs.contains("1 Violin") && tabs.contains("2 Electric"),
+            "{tabs}"
+        );
         assert!(screen.contains("1-9"));
     }
 
@@ -1402,6 +1473,31 @@ mod tests {
         assert!(screen.contains("1/4"));
         // Fitting puts the highest note near the top.
         assert!(a.view.top_pitch >= 72);
+    }
+
+    #[test]
+    fn zero_fits_every_note_of_every_track() {
+        let mut a = with_layer(app()); // violin C4-C5, bass two octaves down
+        a.animations = false;
+        a.cursor = 40.0;
+        a.view.left_beat = 32.0;
+        a.view_follow = false;
+        a.fit_view();
+        let screen = render(&mut a, 100, 26);
+        assert!(a.view.pitch_step > 1, "36 semitones need squeezing");
+        assert_eq!(a.view.left_beat, 0.0);
+        let grid = a.areas.roll_grid;
+        for t in &a.tracks {
+            for n in &t.notes {
+                let r = super::row_of(&a, n.note.pitch);
+                assert!(
+                    (0..i32::from(grid.height)).contains(&r),
+                    "pitch {} off screen",
+                    n.note.pitch
+                );
+            }
+        }
+        assert!(screen.contains("semitones per row"));
     }
 
     #[test]

@@ -64,8 +64,10 @@ the microphone from picking up the backing.
 | Key | Action |
 |---|---|
 | `space` | play / stop from the playhead (the playhead stays where you stop) |
-| `[` `]`, `{` `}`, `0` | move the playhead a beat, a bar, or back to the start (with `--mouse`, click the ruler) |
-| `1`–`9` | switch track; other tracks show dimmed in the roll |
+| `[` `]`, `{` `}`, `Home` | move the playhead a beat, a bar, or back to the start (with `--mouse`, click the ruler) |
+| `0` | zoom out so every note of every track is in view (`+` zooms back in) |
+| `1`–`9` | switch track. The tabs above the roll show each track's number and instrument; the other tracks show dulled behind the current one |
+| `a` | add a note at the playhead (it takes the previous note's pitch; adjust it with `j`/`k` and `<`/`>`, then press `a` again for the next one). With `--mouse`, right-click the roll |
 | `h` `l` | select the previous / next note (the playhead follows) |
 | `j` `k`, `J` `K` | move the note down / up a semitone, or an octave |
 | `<` `>`, `H` `L` | make the note shorter / longer, or move it earlier / later (by grid steps) |
@@ -75,7 +77,7 @@ the microphone from picking up the backing.
 | `i` | instrument for the current track (type to fuzzy-search, for example `vio`) |
 | `t` | switch between the note tracker and "why notes changed" |
 | `tab` | move focus to the next panel. In the mixer: `h`/`l` strip, `j`/`k` volume, `[`/`]` pan, `m` mute, `s` solo |
-| `:` | `:w`, `:export song.wav`, `:track new cello`, `:track del`, `:track name Bass`, `:transpose -12`, `:key D minor`, `:tempo 100`, `:quantize 1/8`, `:q` |
+| `:` | `:notes C4 1/4 E4 1/8 r 1/8 G4 1/2` (type notes in at the playhead), `:w`, `:export song.wav`, `:track new cello`, `:track del`, `:track name Bass`, `:transpose -12`, `:key D minor`, `:tempo 100`, `:quantize 1/8`, `:q` |
 | `?` | full help |
 
 `:w` saves a multi-track MIDI file, with each track on its own channel and
