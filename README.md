@@ -87,8 +87,9 @@ hummr
 
 1. Press **`r`**, hum a short melody (try "Twinkle Twinkle"), and press
    **`r`** again. A second later your notes appear in the piano roll.
-2. Press **`space`** to hear it back. Press **`i`** and pick an instrument.
-3. Press **`r`** again to hum a second part over the first. You'll get a
+2. Press **`space`** to hear it back. Press **`I`** to change its instrument.
+3. Press **`i`**, pick a second instrument (it gets its own track), then press
+   **`r`** to hum its part over the first. You'll get a
    one-bar count-in, and then the song plays while you sing.
 4. Press **`:w`** to save the song as a MIDI file.
 
@@ -137,7 +138,8 @@ recording and adding notes all start there.
 | `M` | Join with the next note into one held note |
 | `x` | Delete the note |
 | `u` | Undo (also removes a whole recorded layer or deleted track) |
-| `i` | Instrument for this track |
+| `i` | Add an instrument as a new track (then `r` hums its part into it) |
+| `I` | Change this track's instrument |
 | `D` | Delete this track |
 | `t` | Switch the tracker to **why notes changed** |
 

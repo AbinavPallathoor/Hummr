@@ -189,6 +189,8 @@ pub struct App {
     pub picker_query: String,
     pub picker_results: Vec<(u8, i32)>,
     pub picker_sel: usize,
+    /// Whether the picker adds a new track (`i`) or changes this one (`I`).
+    pub picker_new_track: bool,
     /// The playhead when stopped: where playback and recording start.
     pub cursor: f64,
 
@@ -266,6 +268,7 @@ impl App {
             picker_query: String::new(),
             picker_results: Vec::new(),
             picker_sel: 0,
+            picker_new_track: true,
             cursor: 0.0,
             message: Some((
                 "Press r and hum a melody, or :open take.wav. Press ? for help.".into(),
@@ -673,7 +676,15 @@ impl App {
         // Both placements are sung in time with the song, so the take's
         // beat 0 is exactly the beat recording started at.
         self.checkpoint();
-        let tr = if placement == Placement::Overlay {
+        let target_is_empty = self
+            .tracks
+            .get(plan.track)
+            .is_some_and(|t| t.notes.is_empty());
+        let tr = if placement == Placement::Overlay && target_is_empty {
+            // You added an instrument with `i` and then hummed its part:
+            // it goes into that (empty) track rather than yet another one.
+            plan.track
+        } else if placement == Placement::Overlay {
             let used: Vec<u8> = self.tracks.iter().map(|t| t.program).collect();
             self.tracks.push(Track::new(next_instrument(&used)));
             self.sync_strips();
@@ -713,7 +724,7 @@ impl App {
         let plural = |n: usize| if n == 1 { "" } else { "s" };
         let msg = match placement {
             Placement::Overlay => format!(
-                "new layer {}: {name}, {count} note{} from {at}. Press i to change its instrument",
+                "track {}: {name}, {count} note{} from {at}. Press I to change its instrument",
                 tr + 1,
                 plural(count)
             ),
@@ -875,7 +886,13 @@ impl App {
         } else if self.busy.is_some() {
             self.warn("still transcribing the last take; one moment");
         } else if self.song_is_empty() || self.tracks.is_empty() {
-            self.begin_recording(first_take_plan());
+            // The first take of the song goes into the current track, which
+            // may already have an instrument picked with `i`.
+            let plan = Plan {
+                track: self.cur,
+                ..first_take_plan()
+            };
+            self.begin_recording(plan);
         } else {
             let plan = self.plan_for(placement);
             self.begin_recording(plan);
@@ -1521,16 +1538,7 @@ impl App {
                         Err(e) => return self.error(e.to_string()),
                     }
                 };
-                self.checkpoint();
-                self.tracks.push(Track::new(program));
-                self.sync_strips();
-                let i = self.tracks.len() - 1;
-                self.select_track(i);
-                self.info(format!(
-                    "new empty track {}: {}. Press r and choose append to fill it",
-                    i + 1,
-                    instruments::name(program)
-                ));
+                self.add_track(program);
             }
             "del" | "delete" | "rm" | "remove" => self.delete_track(),
             "name" | "rename" => {
@@ -1612,11 +1620,21 @@ impl App {
         self.fx(FxRequest::Lower);
     }
 
+    /// `i`: pick an instrument to add as a new track. If the current track
+    /// has no notes yet, the pick replaces its instrument instead, so a wrong
+    /// choice doesn't leave empty tracks behind.
     pub fn open_picker(&mut self) {
-        if self.tracks.is_empty() {
-            self.tracks.push(Track::new(40));
-            self.sync_strips();
-        }
+        self.picker_new_track = self.track().is_some_and(|t| !t.notes.is_empty());
+        self.show_picker();
+    }
+
+    /// `I`: change the current track's instrument.
+    pub fn open_picker_for_track(&mut self) {
+        self.picker_new_track = false;
+        self.show_picker();
+    }
+
+    fn show_picker(&mut self) {
         self.mode = Mode::Picker;
         self.picker_query.clear();
         self.refresh_picker();
@@ -1643,10 +1661,29 @@ impl App {
     }
 
     pub fn picker_choose(&mut self) {
-        if let Some(&(p, _)) = self.picker_results.get(self.picker_sel) {
+        self.mode = Mode::Normal;
+        let Some(&(p, _)) = self.picker_results.get(self.picker_sel) else {
+            return;
+        };
+        if self.picker_new_track {
+            self.add_track(p);
+        } else {
             self.set_instrument(p);
         }
-        self.mode = Mode::Normal;
+    }
+
+    /// Adds an empty track with `program` and switches to it.
+    pub fn add_track(&mut self, program: u8) {
+        self.checkpoint();
+        self.tracks.push(Track::new(program));
+        self.sync_strips();
+        let i = self.tracks.len() - 1;
+        self.select_track(i);
+        self.info(format!(
+            "added track {}: {}. Press r to hum its part (the song plays along), or a to add notes",
+            i + 1,
+            instruments::name(program)
+        ));
     }
 
     pub fn set_instrument(&mut self, program: u8) {
@@ -2182,14 +2219,50 @@ mod tests {
         assert!(app.quit);
     }
 
-    #[test]
-    fn picker_sets_the_current_tracks_instrument() {
-        let mut app = app_with_notes();
-        app.open_picker();
-        app.picker_query = "flute".into();
+    fn pick(app: &mut App, query: &str) {
+        app.picker_query = query.into();
         app.refresh_picker();
         app.picker_choose();
-        assert_eq!(app.tracks[0].program, 73);
+    }
+
+    #[test]
+    fn adding_an_instrument_makes_a_new_track() {
+        let mut app = app_with_notes();
+        app.open_picker();
+        pick(&mut app, "flute");
+        assert_eq!(app.tracks.len(), 2, "the violin track is kept");
+        assert_eq!(app.tracks[0].program, 40);
+        assert_eq!(app.tracks[1].program, 73);
+        assert_eq!(app.cur, 1);
+        // The new track is empty, so picking again just fixes its instrument.
+        app.open_picker();
+        pick(&mut app, "cello");
+        assert_eq!(app.tracks.len(), 2);
+        assert_eq!(app.tracks[1].program, 42);
+        // I changes the current track's instrument explicitly.
+        app.select_track(0);
+        app.open_picker_for_track();
+        pick(&mut app, "piano");
+        assert_eq!(app.tracks.len(), 2);
+        assert_eq!(app.tracks[0].program, 0);
+    }
+
+    #[test]
+    fn humming_after_adding_an_instrument_fills_that_track() {
+        let mut app = first_song();
+        app.open_picker();
+        pick(&mut app, "flute");
+        assert_eq!(app.tracks.len(), 2);
+        let plan = app.plan_for(Placement::Overlay);
+        assert_eq!(plan.track, 1);
+        feed(&mut app, plan, &[(72, 1.0), (71, 1.0)]);
+        assert_eq!(app.tracks.len(), 2, "no extra track");
+        assert_eq!(app.tracks[1].program, 73);
+        assert_eq!(pitches(&app, 1), vec![(72, 0.0), (71, 1.0)]);
+        // With notes in it now, the next layer gets a track of its own.
+        let plan = app.plan_for(Placement::Overlay);
+        feed(&mut app, plan, &[(48, 2.0)]);
+        assert_eq!(app.tracks.len(), 3);
     }
 
     #[test]

@@ -58,6 +58,7 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('{') => return app.scrub(-4.0),
         KeyCode::Char('}') => return app.scrub(4.0),
         KeyCode::Char('i') => return app.open_picker(),
+        KeyCode::Char('I') => return app.open_picker_for_track(),
         KeyCode::Char('t') => return app.toggle_lower(),
         KeyCode::Char('u') => return app.undo(),
         KeyCode::Tab => return app.cycle_focus(),

@@ -1167,7 +1167,7 @@ fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
                 ]);
             }
             h.extend([
-                ("i", "instrument"),
+                ("i", "add instrument"),
                 ("t", "why"),
                 ("tab", "panel"),
                 (":", "command"),
@@ -1217,7 +1217,12 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     let rect = centered(area, 46, 66, 40, 12);
     app.areas.popup = rect;
     f.render_widget(Clear, rect);
-    let block = panel("Instrument", true);
+    let title = if app.picker_new_track {
+        format!("Add an instrument · new track {}", app.tracks.len() + 1)
+    } else {
+        format!("Instrument for track {}", app.cur + 1)
+    };
+    let block = panel(&title, true);
     let inner = block.inner(rect);
     f.render_widget(block, rect);
     let mut lines = vec![
@@ -1303,7 +1308,8 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         key("home", "playhead to start"),
         key("1-9", "switch track"),
         key("D", "delete track (u undoes)"),
-        key("i", "instrument"),
+        key("i", "add an instrument track"),
+        key("I", "change this track's instrument"),
         key("t", "tracker ⇄ why"),
         key("tab", "next panel"),
         key(":", "command line"),
