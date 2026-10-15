@@ -134,6 +134,8 @@ pub struct Transcription {
     pub tempo_bpm: f64,
     pub tempo_source: TempoSource,
     pub grid: Option<Grid>,
+    /// Time in the recording (seconds) that corresponds to beat 0.
+    pub origin_seconds: f64,
     /// Global tuning offset that was removed, in semitones.
     pub tuning_offset: f32,
     pub changes: Vec<Change>,
@@ -344,6 +346,7 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
     let mut notes: Vec<TranscribedNote> = Vec::new();
     let mut src_of_note: Vec<usize> = Vec::new();
     let mut timing_notes: Vec<Vec<(ChangeKind, String)>> = Vec::new();
+    let mut origin_seconds = fallback_phase;
 
     if let Some(grid) = opts.quantize {
         let step = tempo.grid_step_seconds(grid_beats);
@@ -423,6 +426,7 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
         }
 
         let k0 = kept.first().map_or(0, |s| s.start);
+        origin_seconds = tempo.phase + k0 as f64 * step;
         for slot in &kept {
             let d = &detected[slot.src];
             let start_beats = (slot.start - k0) as f64 * grid_beats;
@@ -511,6 +515,7 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
         tempo_bpm: tempo.bpm,
         tempo_source,
         grid: opts.quantize,
+        origin_seconds,
         tuning_offset: seg.tuning_offset,
         changes,
         duration_seconds: audio.duration_seconds(),

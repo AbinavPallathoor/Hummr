@@ -8,8 +8,10 @@ CLI command.
 Written entirely in Rust. It needs no network access at runtime and runs on
 macOS, Windows and Linux.
 
-> **Status:** Feature 1 (transcription) is done. Rendering, recording, projects,
-> watch mode, accompaniment, the TUI editor and the beatbox classifier are next.
+> **Status:** Transcription, recording and a first version of the terminal
+> editor work. Playback currently uses a small built-in preview synth.
+> SoundFont rendering, projects, watch mode, accompaniment and the beatbox
+> classifier are next.
 
 ## Install
 
@@ -35,6 +37,43 @@ cargo install --path crates/vme-cli     # installs the `vme` binary
 - **Windows:** no extra setup is needed.
 
 ## Usage
+
+### The editor
+
+```sh
+vme                      # open the editor
+vme takes/take-001.wav   # open a recording (or a .mid file)
+vme --no-anim --mouse    # no animations; click and scroll with the mouse
+```
+
+Press **`r`** and hum. The pitch meter shows the note you're singing as you
+sing it. Press **`r`** again to stop. Each take is saved to `./takes/` and
+transcribed automatically. Then:
+
+| Key | Action |
+|---|---|
+| `space` / `enter` | play everything / play from the selected note (your voice and the instrument, through the mixer) |
+| `h` `l` | select the previous / next note |
+| `j` `k`, `J` `K` | move the note down / up a semitone, or an octave |
+| `<` `>`, `H` `L` | make the note shorter / longer, or move it earlier / later (by grid steps) |
+| `x`, `u` | delete the note, undo |
+| `i` | instrument picker (type to fuzzy-search, for example `vio` for violin) |
+| `t` | switch between the note tracker and "why notes changed" |
+| `tab` | move focus to the next panel. In the mixer: `j`/`k` volume, `[`/`]` pan, `m` mute, `s` solo |
+| `:` | command line: `:w`, `:export song.wav`, `:key D minor`, `:tempo 100`, `:quantize 1/8`, `:instrument flute`, `:anim off`, `:q` |
+| `?` | full help |
+
+In the piano roll, lighter rows are notes in the key. The instrument you pick
+is saved into the MIDI file. For now, playback and `:export *.wav` use a simple
+preview synth; real SoundFont instruments come next. To turn animations off,
+use `--no-anim`, set `VME_NO_ANIM=1`, or type `:anim off`.
+
+### Record from the command line
+
+```sh
+vme record -o take.wav            # press Enter to stop
+vme record -o take.wav --seconds 8
+```
 
 ### Transcribe a hummed take to MIDI
 
@@ -117,6 +156,9 @@ cargo clippy --all-targets -- -D warnings
 - Golden MIDI bytes live in `crates/vme-core/tests/golden/`. Regenerate them
   with `UPDATE_GOLDEN=1 cargo test` after an intended change.
 - Readable MIDI dumps are `insta` snapshots (`cargo insta review`).
+- To print an editor screen as text, without a real terminal, run
+  `cargo run -p vme-tui --example screen -- take.wav "lll" 110 34`. The
+  second argument is a sequence of keys to press first.
 
 Workspace layout:
 
@@ -124,7 +166,7 @@ Workspace layout:
 |---|---|
 | `vme-core` | Audio engine: pitch tracking, segmentation, key, quantization, MIDI/WAV I/O. It has no UI dependencies. |
 | `vme-cli` | The `vme` binary. |
-| `vme-tui` | Terminal editor (feature 7). |
+| `vme-tui` | Terminal editor (ratatui + tachyonfx). |
 
 ## Known limitations
 

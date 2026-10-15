@@ -12,12 +12,16 @@
 //! [`transcribe::transcribe`] runs all of the above and records every change
 //! it makes so the CLI can explain itself.
 
+pub mod audio;
 pub mod buffer;
 pub mod dsp;
 pub mod error;
+pub mod fuzzy;
+pub mod instruments;
 pub mod io;
 pub mod notation;
 pub mod pitch;
+pub mod preview;
 pub mod rhythm;
 pub mod segment;
 pub mod sequence;

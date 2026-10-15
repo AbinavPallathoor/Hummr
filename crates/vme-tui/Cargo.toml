@@ -9,4 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+ratatui = "0.30.2"
+tachyonfx = "0.25.2"
 vme-core.workspace = true

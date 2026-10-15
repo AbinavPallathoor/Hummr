@@ -9,6 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+cpal = "0.18.2"
 hound.workspace = true
 midly.workspace = true
 realfft.workspace = true
