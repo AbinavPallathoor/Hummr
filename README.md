@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/editor.svg" alt="hummr editing a three-track song: piano roll with violin, cello and flute parts, tracker and mixer" width="100%">
+  <img src="docs/screenshot.png" alt="hummr after transcribing a hummed take: piano roll, tracker showing sung pitches and snapped notes, and mixer" width="100%">
 </p>
 
 Press `r` and hum a tune. Hummr hears the pitch, works out the notes, the key
@@ -54,25 +54,6 @@ command line, MIDI files you can commit to git, and a CLI for scripting.
   your recorded voice on its own strip.
 - 💾 **Plain files.** Songs save as standard multi-track MIDI, each instrument
   on its own track. Your takes are kept as WAV files in `./takes`.
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/recording.svg" alt="Recording a new layer with a live pitch meter"></td>
-    <td width="50%"><img src="docs/screenshots/why.svg" alt="The why-notes-changed panel explaining every adjustment"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Recording a layer.</b> The pitch meter shows the note you're singing, in tune or not, as you sing it.</td>
-    <td align="center"><b>Why notes changed.</b> Every snap, shift and merge, explained.</td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/instruments.svg" alt="Fuzzy-searchable instrument picker"></td>
-    <td width="50%"><img src="docs/screenshots/help.svg" alt="Built-in help with every key and command"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Instrument picker.</b> Type <code>vio</code>, press Enter.</td>
-    <td align="center"><b>Built-in help.</b> Press <code>?</code> at any time.</td>
-  </tr>
-</table>
 
 ## Install
 
@@ -267,8 +248,6 @@ cargo clippy --all-targets -- -D warnings
 - **Golden files.** The DSP tests sing synthetic melodies with vibrato, drift,
   breath noise and fading. Golden MIDI files live in
   `crates/hummr-core/tests/golden` (regenerate with `UPDATE_GOLDEN=1 cargo test`).
-- **Screenshots.** The images in this README are rendered from the real UI:
-  `cargo run -p hummr-tui --example screenshots -- take.wav docs/screenshots`.
 - **Screens as text.** To see a screen without a terminal, run
   `cargo run -p hummr-tui --example screen -- take.wav "lll" 110 34`.
 
