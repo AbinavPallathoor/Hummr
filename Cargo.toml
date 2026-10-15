@@ -1,0 +1,30 @@
+[workspace]
+resolver = "3"
+members = ["crates/vme-core", "crates/vme-cli", "crates/vme-tui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+authors = ["Abinav Pallathoor"]
+repository = "https://github.com/AbinavPallathoor/Hummr"
+
+[workspace.dependencies]
+vme-core = { path = "crates/vme-core" }
+vme-tui = { path = "crates/vme-tui" }
+
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+hound = "3.5.1"
+insta = "1.49.0"
+midly = "0.5.3"
+realfft = "3.5.0"
+thiserror = "2.0.21"
+
+# DSP code is painfully slow unoptimised; keep debug builds and tests usable.
+[profile.dev.package.vme-core]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,39 @@
+---
+source: crates/vme-core/tests/transcribe_e2e.rs
+expression: "midi::dump(&bytes).unwrap()"
+---
+format=SingleTrack timing=Metrical(u15(480)) tracks=1
+track 0
+       0  track_name "twinkle"
+       0  tempo 96.00 bpm
+       0  TimeSignature(4, 2, 24, 8)
+       0  KeySignature(0, false)
+       0  ch0 note_on  C4   vel 100
+     480  ch0 note_off C4
+     480  ch0 note_on  C4   vel 100
+     960  ch0 note_off C4
+     960  ch0 note_on  G4   vel 100
+    1440  ch0 note_off G4
+    1440  ch0 note_on  G4   vel 99
+    1920  ch0 note_off G4
+    1920  ch0 note_on  A4   vel 99
+    2400  ch0 note_off A4
+    2400  ch0 note_on  A4   vel 99
+    2880  ch0 note_off A4
+    2880  ch0 note_on  G4   vel 99
+    3840  ch0 note_off G4
+    3840  ch0 note_on  F4   vel 100
+    4320  ch0 note_off F4
+    4320  ch0 note_on  F4   vel 100
+    4800  ch0 note_off F4
+    4800  ch0 note_on  E4   vel 99
+    5280  ch0 note_off E4
+    5280  ch0 note_on  E4   vel 99
+    5760  ch0 note_off E4
+    5760  ch0 note_on  D4   vel 100
+    6240  ch0 note_off D4
+    6240  ch0 note_on  D4   vel 100
+    6720  ch0 note_off D4
+    6720  ch0 note_on  C4   vel 100
+    7680  ch0 note_off C4
+    7680  EndOfTrack
