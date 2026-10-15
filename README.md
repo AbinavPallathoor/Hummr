@@ -70,6 +70,8 @@ the microphone from picking up the backing.
 | `j` `k`, `J` `K` | move the note down / up a semitone, or an octave |
 | `<` `>`, `H` `L` | make the note shorter / longer, or move it earlier / later (by grid steps) |
 | `x`, `u` | delete the note, undo (undo also removes a whole recorded layer) |
+| `M` | join the selected note with the next one into a single held note (for example when a voice crack split a long note) |
+| `D` | delete the current track (or `x` on a mixer strip, or `:track del`); `u` brings it back |
 | `i` | instrument for the current track (type to fuzzy-search, for example `vio`) |
 | `t` | switch between the note tracker and "why notes changed" |
 | `tab` | move focus to the next panel. In the mixer: `h`/`l` strip, `j`/`k` volume, `[`/`]` pan, `m` mute, `s` solo |
@@ -181,6 +183,13 @@ Workspace layout:
 | `hummr-core` | Audio engine: pitch tracking, segmentation, key, quantization, MIDI/WAV I/O. It has no UI dependencies. |
 | `hummr-cli` | The `hummr` binary. |
 | `hummr-tui` | Terminal editor (ratatui + tachyonfx). |
+
+**Held notes.** Notes keep the length you held them for, even when your voice
+fades, swells, wobbles in vibrato or drifts in pitch. A short breath before
+the next note counts as part of the held note, not as a rest. A real rest
+(longer than about a third of the note, or a beat) is kept. One thing it can't
+tell apart: a brief voice crack in the middle of a long note looks exactly like
+singing "da-da" on one pitch, so it becomes two notes. Press `M` to join them.
 
 ## Known limitations
 

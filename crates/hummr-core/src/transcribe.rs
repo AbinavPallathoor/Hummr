@@ -375,8 +375,14 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
     if let Some(grid) = opts.quantize {
         let step = tempo.grid_step_seconds(grid_beats);
         let idx = |t: f64| ((t - tempo.phase) / step).round() as i64;
-        // People sing notes shorter than written, so ends round up a little.
-        let end_idx = |t: f64| ((t - tempo.phase) / step + 0.25).round() as i64;
+        // People sing notes shorter than written, and cut long holds short
+        // in proportion to their length, so ends stretch by up to 15% of the
+        // note (at most half a beat) and then round up a little.
+        let half_beat = 30.0 / tempo.bpm;
+        let end_idx = |n: &DetectedNote| {
+            let end = n.end + (0.15 * n.duration()).min(half_beat);
+            ((end - tempo.phase) / step + 0.25).round() as i64
+        };
         let mut slots: Vec<Slot> = detected
             .iter()
             .enumerate()
@@ -384,7 +390,7 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
                 let s = idx(n.start);
                 Slot {
                     start: s,
-                    end: end_idx(n.end).max(s + 1),
+                    end: end_idx(n).max(s + 1),
                     src: i,
                 }
             })
@@ -424,14 +430,19 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
             kept.push(slot);
         }
 
-        // Singers breathe between notes. A gap shorter than one grid step
-        // before the next note is articulation, not a rest: hold the note.
+        // Singers breathe between notes, and the longer a note is held the
+        // longer the breath after it tends to be. A gap shorter than one grid
+        // step, or than about a third of the note (up to a beat), is
+        // articulation, not a rest: the note is held until the next one.
+        let beat = 60.0 / tempo.bpm;
         let mut legato = vec![false; detected.len()];
         for i in 0..kept.len().saturating_sub(1) {
             let (next_start, next_src) = (kept[i + 1].start, kept[i + 1].src);
             let slot = &mut kept[i];
-            let real_gap = detected[next_src].start - detected[slot.src].end;
-            if real_gap < step && next_start - slot.end <= 1 {
+            let d = &detected[slot.src];
+            let real_gap = detected[next_src].start - d.end;
+            let allowed = step.max((0.3 * d.duration()).min(beat));
+            if real_gap < allowed {
                 slot.end = next_start;
                 legato[slot.src] = true;
             }

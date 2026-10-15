@@ -80,6 +80,9 @@ fn normal(app: &mut App, key: KeyEvent) {
             KeyCode::Char(']') => app.mixer_pan(0.1),
             KeyCode::Char('m') => app.mixer_mute(),
             KeyCode::Char('s') => app.mixer_solo(),
+            KeyCode::Char('x') | KeyCode::Delete if app.mixer_sel < app.tracks.len() => {
+                app.delete_track()
+            }
             _ => {}
         }
         return;
@@ -100,6 +103,8 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('L') => app.shift_time(1),
         KeyCode::Char('H') => app.shift_time(-1),
         KeyCode::Char('x') | KeyCode::Delete => app.delete(),
+        KeyCode::Char('M') => app.join_next(),
+        KeyCode::Char('D') => app.delete_track(),
         KeyCode::Char('+') | KeyCode::Char('=') => {
             app.view.zoom = (app.view.zoom / 2.0).max(1.0 / 32.0)
         }

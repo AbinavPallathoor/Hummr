@@ -33,36 +33,24 @@ pub enum Cmd {
 
 /// Names shown in suggestions, with their usage.
 pub const COMMANDS: [(&str, &str); 18] = [
-    ("w", ":w [file.mid]       save MIDI (all tracks)"),
+    ("w", ":w [file.mid]       save MIDI"),
     ("q", ":q  :q!             quit / discard"),
-    ("wq", ":wq                 save and quit"),
-    ("export", ":export song.wav    WAV mix or .mid"),
-    ("open", ":open take.wav      open .wav or .mid"),
-    (
-        "record",
-        ":record [overwrite] r: new layer · R: redo this track",
-    ),
-    (
-        "track",
-        ":track 2            switch; :track new cello, del, name Bass",
-    ),
-    ("instrument", ":instrument violin  or press i"),
-    (
-        "transpose",
-        ":transpose -12      move this track (semitones)",
-    ),
+    ("wq", ":wq                 save + quit"),
+    ("export", ":export song.wav    WAV or .mid"),
+    ("open", ":open take.wav      .wav or .mid"),
+    ("record", ":record [overwrite] same as r / R"),
+    ("track", ":track new cello    or 2, del, name X"),
+    ("instrument", ":instrument violin  same as i"),
+    ("transpose", ":transpose -12      shift this track"),
     ("key", ":key D minor        or auto / none"),
     ("tempo", ":tempo 100          or auto"),
     ("quantize", ":quantize 1/8       1/16, 1/8t, off"),
-    ("play", ":play               or press space"),
+    ("play", ":play               same as space"),
     ("stop", ":stop               stop playback"),
-    (
-        "retranscribe",
-        ":retranscribe       redo a single-take song",
-    ),
+    ("retranscribe", ":retranscribe       redo the 1st take"),
     ("anim", ":anim on|off        animations"),
     ("mouse", ":mouse on|off       mouse support"),
-    ("help", ":help               this screen (?)"),
+    ("help", ":help               this help"),
 ];
 
 fn on_off(arg: &str, name: &str) -> Result<bool, String> {

@@ -1301,6 +1301,49 @@ impl App {
         }
     }
 
+    /// `M`: joins the selected note with the next one into one held note,
+    /// e.g. when a voice crack split a long note in two.
+    pub fn join_next(&mut self) {
+        let sel = self.selected;
+        let Some((a, b)) = self
+            .notes()
+            .get(sel)
+            .zip(self.notes().get(sel + 1))
+            .map(|(a, b)| (*a, *b))
+        else {
+            return self.warn("no next note to join with");
+        };
+        self.checkpoint();
+        if let Some(notes) = self.notes_mut() {
+            notes[sel].note.duration_beats = (b.end() - a.start()).max(a.note.duration_beats);
+            notes.remove(sel + 1);
+        }
+        let len = hummr_core::notation::format_length(self.notes()[sel].note.duration_beats);
+        self.info(format!("joined into one {len} note"));
+        self.fx(FxRequest::NoteFlash(sel));
+    }
+
+    /// `D` (or `x` on a mixer strip): deletes the current track. Undoable.
+    pub fn delete_track(&mut self) {
+        if self.tracks.is_empty() {
+            return self.warn("no track to delete");
+        }
+        self.checkpoint();
+        let i = self.cur;
+        let t = self.tracks.remove(i);
+        if i < self.strips.len() {
+            self.strips.remove(i);
+        }
+        self.sync_strips();
+        self.selected = 0;
+        self.info(format!(
+            "deleted track {}: {} ({} notes). Press u to undo",
+            i + 1,
+            t.display_name(),
+            t.notes.len()
+        ));
+    }
+
     pub fn undo(&mut self) {
         match self.undo.pop() {
             Some(s) => {
@@ -1356,19 +1399,7 @@ impl App {
                     instruments::name(program)
                 ));
             }
-            "del" | "delete" | "rm" | "remove" => {
-                if self.tracks.is_empty() {
-                    return self.warn("no track to delete");
-                }
-                self.checkpoint();
-                let t = self.tracks.remove(self.cur);
-                if self.cur < self.strips.len() {
-                    self.strips.remove(self.cur);
-                }
-                self.sync_strips();
-                self.selected = 0;
-                self.info(format!("deleted track {} (u to undo)", t.display_name()));
-            }
+            "del" | "delete" | "rm" | "remove" => self.delete_track(),
             "name" | "rename" => {
                 if rest.is_empty() {
                     return self.error("usage: :track name Bass");
@@ -1966,6 +1997,22 @@ mod tests {
         app.execute(command::parse(":track del").unwrap());
         assert_eq!(app.tracks.len(), 1);
         assert_eq!(app.strips.len(), 1);
+    }
+
+    #[test]
+    fn join_and_delete_track() {
+        let mut app = app_with_notes();
+        app.select(1);
+        app.join_next();
+        assert_eq!(app.notes().len(), 2);
+        assert_eq!(app.notes()[1].note.duration_beats, 2.0);
+        app.execute(command::parse(":track new cello").unwrap());
+        assert_eq!(app.tracks.len(), 2);
+        app.delete_track();
+        assert_eq!(app.tracks.len(), 1);
+        assert!(app.message.as_ref().unwrap().0.contains("u to undo"));
+        app.undo();
+        assert_eq!(app.tracks.len(), 2);
     }
 
     #[test]

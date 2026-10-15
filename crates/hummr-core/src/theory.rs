@@ -356,7 +356,15 @@ pub fn detect_key(notes: &[(u8, f64)]) -> Option<KeyEstimate> {
             for (i, r) in rotated.iter_mut().enumerate() {
                 *r = profile[(i + 12 - usize::from(tonic)) % 12];
             }
-            scored.push((Key::new(tonic, scale), pearson(&hist, &rotated)));
+            let key = Key::new(tonic, scale);
+            // A note sung clearly and for a while is strong evidence the key
+            // contains it, so time spent outside the key counts against it.
+            let total: f64 = hist.iter().sum();
+            let outside: f64 = (0..12u8)
+                .filter(|&pc| !key.contains(pc))
+                .map(|pc| hist[usize::from(pc)])
+                .sum();
+            scored.push((key, pearson(&hist, &rotated) - 3.0 * outside / total));
         }
     }
     scored.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -454,6 +462,22 @@ mod tests {
             .map(|&p| (p, if p == 57 { 2.0 } else { 1.0 }))
             .collect();
         assert_eq!(detect_key(&a_minor).unwrap().key, Key::new(9, Scale::Minor));
+    }
+
+    #[test]
+    fn an_f_natural_rules_out_g_major() {
+        // C D E D C G F with long E and G looks like G major to plain
+        // Krumhansl-Schmuckler; the clearly sung F says otherwise.
+        let melody = [
+            (60u8, 1.0),
+            (62, 1.0),
+            (64, 4.0),
+            (62, 0.5),
+            (60, 0.5),
+            (67, 3.0),
+            (65, 2.0),
+        ];
+        assert_eq!(detect_key(&melody).unwrap().key, Key::new(0, Scale::Major));
     }
 
     #[test]

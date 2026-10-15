@@ -23,6 +23,8 @@ pub struct SegmentParams {
     pub absolute_floor_db: f32,
     /// Energy dip (dB below both neighbouring peaks) that splits a note.
     pub split_dip_db: f32,
+    /// The dip must fall and recover within this time on each side.
+    pub split_dip_seconds: f64,
     /// Width of the pitch emission in semitones.
     pub pitch_sigma: f32,
     /// Per-frame probability of moving directly to another note.
@@ -39,6 +41,7 @@ impl Default for SegmentParams {
             silence_db_below_peak: 30.0,
             absolute_floor_db: -60.0,
             split_dip_db: 6.0,
+            split_dip_seconds: 0.08,
             pitch_sigma: 0.6,
             change_prob: 1e-4,
             correct_tuning: true,
@@ -247,11 +250,16 @@ fn note_viterbi(obs: &[Obs], lo: u8, hi: u8, p: &SegmentParams) -> Vec<Option<u8
 }
 
 /// Recursively splits `[a, b]` (inclusive frame indices) at energy dips.
+///
+/// Only sharp dips count: the level must fall by `dip_db` and come back
+/// within `reach` frames on each side, which is what a re-articulated note
+/// ("da da") looks like. The slow swells of a held note are not split.
 fn split_at_dips(
     db: &[f32],
     a: usize,
     b: usize,
     min_frames: usize,
+    reach: usize,
     dip_db: f32,
     out: &mut Vec<(usize, usize)>,
 ) {
@@ -262,16 +270,22 @@ fn split_at_dips(
             if db[k] > db[k - 1] || db[k] > db[k + 1] {
                 continue;
             }
-            let left = db[a..k].iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let right = db[k..=b].iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let left = db[a.max(k.saturating_sub(reach))..k]
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
+            let right = db[k..=b.min(k + reach)]
+                .iter()
+                .copied()
+                .fold(f32::NEG_INFINITY, f32::max);
             let depth = left.min(right) - db[k];
             if depth >= dip_db && best.is_none_or(|(_, d)| depth > d) {
                 best = Some((k, depth));
             }
         }
         if let Some((k, _)) = best {
-            split_at_dips(db, a, k - 1, min_frames, dip_db, out);
-            split_at_dips(db, k, b, min_frames, dip_db, out);
+            split_at_dips(db, a, k - 1, min_frames, reach, dip_db, out);
+            split_at_dips(db, k, b, min_frames, reach, dip_db, out);
             return;
         }
     }
@@ -366,10 +380,19 @@ pub fn segment_with_offset(
     }
 
     let min_frames = ((p.min_note_seconds / hop).round() as usize).max(1);
+    let reach = ((p.split_dip_seconds / hop).round() as usize).max(2);
     let smoothed = smooth(&db, 2);
     let mut pieces = Vec::new();
     for (a, b) in runs {
-        split_at_dips(&smoothed, a, b, min_frames, p.split_dip_db, &mut pieces);
+        split_at_dips(
+            &smoothed,
+            a,
+            b,
+            min_frames,
+            reach,
+            p.split_dip_db,
+            &mut pieces,
+        );
     }
 
     let mut discarded = Vec::new();

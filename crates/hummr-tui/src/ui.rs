@@ -1085,6 +1085,7 @@ fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("[ ]", "pan"),
                     ("m", "mute"),
                     ("s", "solo"),
+                    ("x", "delete track"),
                 ]);
             } else {
                 h.extend([
@@ -1094,6 +1095,8 @@ fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("< >", "length"),
                     ("H/L", "move"),
                     ("x", "delete"),
+                    ("M", "join next"),
+                    ("D", "delete track"),
                     ("u", "undo"),
                     ("+/-", "zoom"),
                 ]);
@@ -1198,18 +1201,22 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
-    let rect = centered(area, 80, 84, 60, 16);
+    let rect = centered(area, 96, 94, 60, 16);
     app.areas.popup = rect;
     f.render_widget(Clear, rect);
-    let block = panel("Help", true);
+    let block = panel("Help · esc to close", true);
     let inner = block.inner(rect);
     f.render_widget(block, rect);
-    let [l, r] =
-        Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).areas(inner);
+    let [l, m, r] = Layout::horizontal([
+        Constraint::Percentage(36),
+        Constraint::Percentage(27),
+        Constraint::Percentage(37),
+    ])
+    .areas(inner);
     let key = |k: &str, d: &str| {
         Line::from(vec![
             Span::styled(
-                format!(" {k:<9}"),
+                format!(" {k:<8}"),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(d.to_string(), Style::default().fg(TEXT)),
@@ -1221,54 +1228,63 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(DIM).add_modifier(Modifier::BOLD),
         )
     };
-    let keys = vec![
+    let left = vec![
         head("Everywhere"),
-        key("r", "record a new instrument layer"),
-        key("R", "re-record this track from ▼"),
-        key("space", "play / stop from the playhead"),
-        key("[ ] { }", "scrub a beat / a bar, 0 start"),
+        key("r", "record a new layer"),
+        key("R", "re-record this track"),
+        key("space", "play / stop at ▼"),
+        key("[ ] { }", "scrub beat / bar"),
+        key("0", "playhead to start"),
         key("1-9", "switch track"),
-        key("enter", "play from the selected note"),
-        key("i", "instrument picker"),
-        key("t", "tracker ⇄ why notes changed"),
+        key("D", "delete track (u undoes)"),
+        key("i", "instrument"),
+        key("t", "tracker ⇄ why"),
         key("tab", "next panel"),
         key(":", "command line"),
         key("q", "quit"),
         Line::raw(""),
-        head("Notes (roll / tracker)"),
-        key("h l", "previous / next note"),
+        head("Notes"),
+        key("h l", "previous / next"),
         key("j k", "pitch down / up"),
         key("J K", "octave down / up"),
-        key("< >", "shorter / longer (grid)"),
-        key("H L", "move earlier / later"),
-        key("x", "delete"),
+        key("< >", "shorter / longer"),
+        key("H L", "earlier / later"),
+        key("M", "join with next"),
+        key("x", "delete note"),
         key("u", "undo"),
-        key("+ -", "zoom in / out"),
-        Line::raw(""),
-        head("Mixer"),
+        key("enter", "play from note"),
+        key("+ -", "zoom"),
+    ];
+    let mut middle = vec![
+        head("Mixer (tab to it)"),
         key("h l", "select strip"),
         key("j k", "volume"),
         key("[ ]", "pan"),
         key("m s", "mute / solo"),
+        key("x", "delete its track"),
+        Line::raw(""),
+        head("Tips"),
     ];
+    for tip in [
+        "Hum 'doo' or 'la' so",
+        "repeated notes stay apart.",
+        "Use headphones for layers.",
+        "A voice crack split a long",
+        "note? Select it, press M.",
+        "Lighter rows are in the key.",
+        "Takes are kept in ./takes.",
+    ] {
+        middle.push(Line::styled(format!(" {tip}"), Style::default().fg(DIM)));
+    }
     let mut cmds = vec![head("Commands")];
     cmds.extend(
         COMMANDS
             .iter()
             .map(|(_, usage)| Line::styled(format!(" {usage}"), Style::default().fg(TEXT))),
     );
-    cmds.push(Line::raw(""));
-    cmds.push(head("Tips"));
-    for tip in [
-        "Hum 'doo' or 'la' so repeated notes stay separate.",
-        "Rows shaded lighter are in the key; out-of-key",
-        "notes you sing are snapped to the nearest one.",
-        "Takes are saved in ./takes; :w writes the MIDI.",
-    ] {
-        cmds.push(Line::styled(format!(" {tip}"), Style::default().fg(DIM)));
-    }
-    f.render_widget(Paragraph::new(keys), l);
-    f.render_widget(Paragraph::new(cmds).wrap(Wrap { trim: false }), r);
+    f.render_widget(Paragraph::new(left), l);
+    f.render_widget(Paragraph::new(middle), m);
+    f.render_widget(Paragraph::new(cmds), r);
 }
 
 #[cfg(test)]

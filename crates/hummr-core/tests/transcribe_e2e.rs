@@ -187,3 +187,105 @@ fn anchored_grid_lines_up_with_a_count_in() {
     assert!((t.origin_seconds - count_in).abs() < 1e-9);
     assert!(t.changes.iter().any(|c| c.message.contains("count-in")));
 }
+
+/// Hums `notes` at 100 BPM with each sung tone shaped by `shape(t, tone)`.
+fn shaped(
+    notes: &[(u8, f64)],
+    params: HumParams,
+    shape: impl Fn(f64, &Tone) -> f32,
+) -> AudioBuffer {
+    let tones = synthetic::melody(notes, 100.0, 0.4, 0.0, 5);
+    let mut x = synthetic::hum(&tones, &params, 5);
+    let sr = f64::from(params.sample_rate);
+    for (i, s) in x.iter_mut().enumerate() {
+        let t = i as f64 / sr;
+        if let Some(tone) = tones
+            .iter()
+            .find(|tn| t >= tn.start && t < tn.start + tn.duration)
+        {
+            *s *= shape(t - tone.start, tone);
+        }
+    }
+    AudioBuffer::new(x, params.sample_rate)
+}
+
+#[test]
+fn held_notes_keep_their_full_length() {
+    // Short notes around a 4-beat and a 3-beat hold, each sung with a
+    // natural breath afterwards (15% of the note).
+    let melody = [
+        (60, 1.0),
+        (62, 1.0),
+        (64, 4.0),
+        (62, 0.5),
+        (60, 0.5),
+        (67, 3.0),
+        (65, 1.0),
+    ];
+    let p = || HumParams::new(44_100);
+    let cases: Vec<(&str, AudioBuffer)> = vec![
+        ("steady", shaped(&melody, p(), |_, _| 1.0)),
+        // The voice fades by 18 dB over the hold.
+        (
+            "fading",
+            shaped(&melody, p(), |t, _| 10f32.powf(-(t as f32) * 7.5 / 20.0)),
+        ),
+        // Slow loudness swells inside each note must not split it.
+        (
+            "swelling",
+            shaped(&melody, p(), |t, _| {
+                (1.0 - 0.55 * (0.5 + 0.5 * (t * std::f64::consts::TAU * 1.3).sin())) as f32
+            }),
+        ),
+        (
+            "wide vibrato",
+            shaped(
+                &melody,
+                HumParams {
+                    vibrato_cents: 70.0,
+                    ..p()
+                },
+                |_, _| 1.0,
+            ),
+        ),
+        (
+            "drifting",
+            shaped(
+                &melody,
+                HumParams {
+                    drift_cents: 30.0,
+                    ..p()
+                },
+                |_, _| 1.0,
+            ),
+        ),
+    ];
+    for (name, audio) in cases {
+        let t = transcribe(&audio, &TranscribeOptions::default()).unwrap();
+        let got: Vec<(u8, f64)> = t
+            .notes
+            .iter()
+            .map(|n| (n.pitch, n.duration_beats))
+            .collect();
+        assert_eq!(got, melody.to_vec(), "{name}");
+    }
+}
+
+#[test]
+fn rests_after_held_notes_are_kept() {
+    // Half note then a quarter rest, whole note then a half rest: real rests
+    // are longer than a breath and must survive.
+    let tones = vec![
+        Tone::new(64.0, 0.4, 1.2 * 0.85),
+        Tone::new(67.0, 0.4 + 1.8, 2.4 * 0.85),
+        Tone::new(65.0, 0.4 + 1.8 + 3.6, 0.6 * 0.85),
+        Tone::new(64.0, 0.4 + 1.8 + 3.6 + 0.6, 0.6 * 0.85),
+    ];
+    let audio = AudioBuffer::new(synthetic::hum(&tones, &HumParams::new(44_100), 2), 44_100);
+    let opts = TranscribeOptions {
+        tempo: hummr_core::transcribe::TempoChoice::Fixed(100.0),
+        ..TranscribeOptions::default()
+    };
+    let t = transcribe(&audio, &opts).unwrap();
+    assert_eq!(t.notation(), "E4 1/2 r 1/4 G4 1 r 1/2 F4 1/4 E4 1/4");
+}
