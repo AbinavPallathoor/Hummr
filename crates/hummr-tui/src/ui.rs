@@ -592,6 +592,21 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    // Playhead line, always visible: amber when stopped, white when
+    // playing, red when recording. Drawn under the notes so it never
+    // hides a note name.
+    if head_x >= 0.0 && head_x < f64::from(grid.width) {
+        for r in 0..grid.height {
+            if let Some(cell) = buf.cell_mut((grid.x + head_x as u16, grid.y + r)) {
+                cell.set_symbol(if app.playing || app.is_recording() {
+                    "│"
+                } else {
+                    "┊"
+                })
+                .set_fg(head_color);
+            }
+        }
+    }
     // Other tracks first, dimmed, then the track being edited on top.
     for (ti, track) in app.tracks.iter().enumerate() {
         if ti == app.cur {
@@ -674,21 +689,6 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
                 if let Some(cell) = buf.cell_mut((grid.x + x as u16, grid.y + row as u16)) {
                     cell.set_symbol("•").set_fg(RED);
                 }
-            }
-        }
-    }
-
-    // Playhead line, always visible: amber when stopped, white when
-    // playing, red when recording.
-    if head_x >= 0.0 && head_x < f64::from(grid.width) {
-        for r in 0..grid.height {
-            if let Some(cell) = buf.cell_mut((grid.x + head_x as u16, grid.y + r)) {
-                cell.set_symbol(if app.playing || app.is_recording() {
-                    "│"
-                } else {
-                    "┊"
-                })
-                .set_fg(head_color);
             }
         }
     }

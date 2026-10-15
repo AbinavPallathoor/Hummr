@@ -228,6 +228,8 @@ pub struct App {
     job: Option<Job>,
     pub busy: Option<String>,
     pub quit: bool,
+    /// Draw as if recording, without a microphone (for screenshots only).
+    pub(crate) demo_recording: bool,
 }
 
 impl App {
@@ -299,6 +301,7 @@ impl App {
             job: None,
             busy: None,
             quit: false,
+            demo_recording: false,
         }
     }
 
@@ -323,7 +326,7 @@ impl App {
     }
 
     pub fn is_recording(&self) -> bool {
-        self.session.is_some()
+        self.session.is_some() || self.demo_recording
     }
 
     /// Whether the screen is changing on its own (so we redraw at ~60 fps).
@@ -1303,6 +1306,20 @@ impl App {
                 "deleted {}",
                 hummr_core::theory::note_name(n.note.pitch)
             ));
+        }
+    }
+
+    /// Types notes into the current track at the playhead (see `:notes`).
+    pub(crate) fn type_notes_at(&mut self, beat: f64, text: &str) {
+        self.cursor = beat;
+        self.type_notes(text);
+    }
+
+    /// Waits for a background transcription to finish (screenshots, tests).
+    pub(crate) fn wait_for_job(&mut self) {
+        while self.busy.is_some() {
+            std::thread::sleep(Duration::from_millis(5));
+            self.tick(Duration::from_millis(5));
         }
     }
 

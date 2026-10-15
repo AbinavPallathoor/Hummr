@@ -454,8 +454,8 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
                 time: detected.first().map_or(0.0, |d| d.start),
                 kind: ChangeKind::Length,
                 message: format!(
-                    "held {held} notes through the short breaths before the next note \
-                     (gaps under one {grid} step are articulation, not rests)"
+                    "held {held} notes through the short breath before the next note \
+                     (a breath is part of the note, not a rest)"
                 ),
             });
         }

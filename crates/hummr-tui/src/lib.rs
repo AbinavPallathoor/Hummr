@@ -7,6 +7,8 @@
 mod app;
 mod command;
 mod input;
+#[doc(hidden)]
+pub mod screenshot;
 mod smooth;
 mod song;
 mod ui;
