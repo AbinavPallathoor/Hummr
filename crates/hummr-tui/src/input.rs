@@ -45,12 +45,17 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char(':') => return app.open_command(),
         KeyCode::Char('?') => return app.mode = Mode::Help,
         KeyCode::Char('q') => return app.execute(crate::command::Cmd::Quit { force: false }),
-        KeyCode::Char('r') => return app.start_recording(),
+        KeyCode::Char('r') => return app.press_record(),
+        KeyCode::Char('R') => return app.press_record_overwrite(),
+        KeyCode::Char(c @ '1'..='9') => return app.select_track(c as usize - '1' as usize),
         KeyCode::Char(' ') => return app.toggle_play(),
         KeyCode::Enter => {
-            let from = app.notes.get(app.selected).map(|n| n.note.start_beats);
+            let from = app.notes().get(app.selected).map(|n| n.note.start_beats);
             return app.play_from_beat(from);
         }
+        KeyCode::Char('0') => return app.scrub_to(0.0),
+        KeyCode::Char('{') => return app.scrub(-4.0),
+        KeyCode::Char('}') => return app.scrub(4.0),
         KeyCode::Char('i') => return app.open_picker(),
         KeyCode::Char('t') => return app.toggle_lower(),
         KeyCode::Char('u') => return app.undo(),
@@ -67,10 +72,8 @@ fn normal(app: &mut App, key: KeyEvent) {
     }
     if app.focus == Focus::Mixer {
         match key.code {
-            KeyCode::Char('h') | KeyCode::Left => app.strip_sel = app.strip_sel.saturating_sub(1),
-            KeyCode::Char('l') | KeyCode::Right => {
-                app.strip_sel = (app.strip_sel + 1).min(app.strips.len() - 1)
-            }
+            KeyCode::Char('h') | KeyCode::Left => app.mixer_select(-1),
+            KeyCode::Char('l') | KeyCode::Right => app.mixer_select(1),
             KeyCode::Char('k') | KeyCode::Up => app.mixer_gain(1.0),
             KeyCode::Char('j') | KeyCode::Down => app.mixer_gain(-1.0),
             KeyCode::Char('[') => app.mixer_pan(-0.1),
@@ -82,10 +85,12 @@ fn normal(app: &mut App, key: KeyEvent) {
         return;
     }
     match key.code {
+        KeyCode::Char('[') => app.scrub(-1.0),
+        KeyCode::Char(']') => app.scrub(1.0),
         KeyCode::Char('h') | KeyCode::Left => app.select(-1),
         KeyCode::Char('l') | KeyCode::Right => app.select(1),
         KeyCode::Char('g') | KeyCode::Home => app.selected = 0,
-        KeyCode::Char('G') | KeyCode::End => app.selected = app.notes.len().saturating_sub(1),
+        KeyCode::Char('G') | KeyCode::End => app.selected = app.notes().len().saturating_sub(1),
         KeyCode::Char('k') | KeyCode::Up => app.transpose(1),
         KeyCode::Char('j') | KeyCode::Down => app.transpose(-1),
         KeyCode::Char('K') => app.transpose(12),
@@ -158,18 +163,35 @@ pub fn on_mouse(app: &mut App, ev: MouseEvent) {
         app.view_follow = false;
     }
     match ev.kind {
+        MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left)
+            if app.areas.ruler.contains(pos) =>
+        {
+            let beat =
+                app.view.left_beat + f64::from(ev.column - app.areas.ruler.x) * app.view.zoom;
+            app.scrub_to((beat / app.grid_beats()).round() * app.grid_beats());
+        }
         MouseEventKind::Down(MouseButton::Left) if grid.contains(pos) => {
             app.focus = Focus::Roll;
             let beat = app.view.left_beat + f64::from(ev.column - grid.x) * app.view.zoom;
             let pitch = i32::from(app.view.top_pitch) - i32::from(ev.row - grid.y);
-            // Pick the note under the cursor, else the nearest in time.
-            let hit = app.notes.iter().position(|n| {
-                i32::from(n.note.pitch) == pitch
-                    && beat >= n.note.start_beats
-                    && beat < n.note.start_beats + n.note.duration_beats
-            });
+            // Pick the note under the cursor (on any track, switching to
+            // it), else the nearest note in time on the current track.
+            let under = |n: &crate::song::EditNote| {
+                i32::from(n.note.pitch) == pitch && beat >= n.start() && beat < n.end()
+            };
+            let other = (0..app.tracks.len())
+                .filter(|&t| t != app.cur)
+                .find_map(|t| app.tracks[t].notes.iter().position(under).map(|i| (t, i)));
+            if app.notes().iter().all(|n| !under(n)) {
+                if let Some((t, i)) = other {
+                    app.select_track(t);
+                    app.selected = i;
+                    return;
+                }
+            }
+            let hit = app.notes().iter().position(under);
             let nearest = app
-                .notes
+                .notes()
                 .iter()
                 .enumerate()
                 .min_by(|a, b| {

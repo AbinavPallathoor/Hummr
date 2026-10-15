@@ -47,26 +47,40 @@ hummr --no-anim --mouse    # no animations; click and scroll with the mouse
 ```
 
 Press **`r`** and hum. The pitch meter shows the note you're singing as you
-sing it. Press **`r`** again to stop. Each take is saved to `./takes/` and
-transcribed automatically. Then:
+sing it. Press **`r`** again to stop. The take is saved to `./takes/` and
+transcribed automatically. That first take sets the song's tempo and key.
+
+**Building up a song.** There are two recording keys, and both start at the
+playhead (the `▼` line):
+
+| Key | What it does |
+|---|---|
+| `r` | **New layer.** After a one-bar count-in, the song plays along while you hum another part. It becomes a new track with a different instrument (`i` changes it). |
+| `R` | **Redo this track.** Re-records the current instrument from the playhead. Whatever you sing over is replaced, and the rest of the track stays. You hear the other tracks while you sing. |
+
+New takes use the song's tempo, key and grid automatically. Headphones stop
+the microphone from picking up the backing.
 
 | Key | Action |
 |---|---|
-| `space` / `enter` | play everything / play from the selected note (your voice and the instrument, through the mixer) |
-| `h` `l` | select the previous / next note |
+| `space` | play / stop from the playhead (the playhead stays where you stop) |
+| `[` `]`, `{` `}`, `0` | move the playhead a beat, a bar, or back to the start (with `--mouse`, click the ruler) |
+| `1`–`9` | switch track; other tracks show dimmed in the roll |
+| `h` `l` | select the previous / next note (the playhead follows) |
 | `j` `k`, `J` `K` | move the note down / up a semitone, or an octave |
 | `<` `>`, `H` `L` | make the note shorter / longer, or move it earlier / later (by grid steps) |
-| `x`, `u` | delete the note, undo |
-| `i` | instrument picker (type to fuzzy-search, for example `vio` for violin) |
+| `x`, `u` | delete the note, undo (undo also removes a whole recorded layer) |
+| `i` | instrument for the current track (type to fuzzy-search, for example `vio`) |
 | `t` | switch between the note tracker and "why notes changed" |
-| `tab` | move focus to the next panel. In the mixer: `j`/`k` volume, `[`/`]` pan, `m` mute, `s` solo |
-| `:` | command line: `:w`, `:export song.wav`, `:key D minor`, `:tempo 100`, `:quantize 1/8`, `:instrument flute`, `:anim off`, `:q` |
+| `tab` | move focus to the next panel. In the mixer: `h`/`l` strip, `j`/`k` volume, `[`/`]` pan, `m` mute, `s` solo |
+| `:` | `:w`, `:export song.wav`, `:track new cello`, `:track del`, `:track name Bass`, `:transpose -12`, `:key D minor`, `:tempo 100`, `:quantize 1/8`, `:q` |
 | `?` | full help |
 
-In the piano roll, lighter rows are notes in the key. The instrument you pick
-is saved into the MIDI file. For now, playback and `:export *.wav` use a simple
-preview synth; real SoundFont instruments come next. To turn animations off,
-use `--no-anim`, set `HUMMR_NO_ANIM=1`, or type `:anim off`.
+`:w` saves a multi-track MIDI file, with each track on its own channel and
+instrument. Opening it again restores all the tracks. In the piano roll,
+lighter rows are notes in the key. For now, playback and `:export *.wav` use a
+simple preview synth; real SoundFont instruments come next. To turn animations
+off, use `--no-anim`, set `HUMMR_NO_ANIM=1`, or type `:anim off`.
 
 ### Record from the command line
 

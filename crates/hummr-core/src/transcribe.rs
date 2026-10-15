@@ -65,6 +65,10 @@ pub struct TranscribeOptions {
     pub max_bpm: f64,
     pub pyin: PyinParams,
     pub segment: SegmentParams,
+    /// Time in the recording (seconds) that is beat 0, e.g. the end of a
+    /// count-in. When set, the grid is anchored there instead of being
+    /// fitted to the onsets, and notes sung before it are dropped.
+    pub grid_origin: Option<f64>,
 }
 
 impl Default for TranscribeOptions {
@@ -77,6 +81,7 @@ impl Default for TranscribeOptions {
             max_bpm: 160.0,
             pyin: PyinParams::default(),
             segment: SegmentParams::default(),
+            grid_origin: None,
         }
     }
 }
@@ -337,6 +342,25 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
         }
     };
 
+    let tempo = match opts.grid_origin {
+        Some(origin) => TempoEstimate {
+            phase: origin,
+            ..tempo
+        },
+        None => tempo,
+    };
+    let anchored = opts.grid_origin.is_some();
+    let count_in_drop = |d: &DetectedNote| Change {
+        note: None,
+        time: d.start,
+        kind: ChangeKind::Dropped,
+        message: format!(
+            "dropped {} at {:.3}s: sung before the count-in finished",
+            note_name(d.nearest_pitch()),
+            d.start
+        ),
+    };
+
     // Quantise (or just convert to beats).
     struct Slot {
         start: i64,
@@ -346,7 +370,7 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
     let mut notes: Vec<TranscribedNote> = Vec::new();
     let mut src_of_note: Vec<usize> = Vec::new();
     let mut timing_notes: Vec<Vec<(ChangeKind, String)>> = Vec::new();
-    let mut origin_seconds = fallback_phase;
+    let origin_seconds;
 
     if let Some(grid) = opts.quantize {
         let step = tempo.grid_step_seconds(grid_beats);
@@ -425,7 +449,20 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
             });
         }
 
-        let k0 = kept.first().map_or(0, |s| s.start);
+        if anchored {
+            kept.retain(|slot| {
+                let early = slot.start < 0;
+                if early {
+                    changes.push(count_in_drop(&detected[slot.src]));
+                }
+                !early
+            });
+        }
+        let k0 = if anchored {
+            0
+        } else {
+            kept.first().map_or(0, |s| s.start)
+        };
         origin_seconds = tempo.phase + k0 as f64 * step;
         for slot in &kept {
             let d = &detected[slot.src];
@@ -472,12 +509,17 @@ pub fn transcribe(audio: &AudioBuffer, opts: &TranscribeOptions) -> Result<Trans
             timing_notes.push(why);
         }
     } else {
-        let t0 = fallback_phase;
+        let t0 = opts.grid_origin.unwrap_or(fallback_phase);
+        origin_seconds = t0;
         let beats_per_sec = tempo.bpm / 60.0;
         for (i, d) in detected.iter().enumerate() {
+            if d.start < t0 - 0.05 {
+                changes.push(count_in_drop(d));
+                continue;
+            }
             notes.push(TranscribedNote {
                 pitch: pitches[i],
-                start_beats: (d.start - t0) * beats_per_sec,
+                start_beats: ((d.start - t0) * beats_per_sec).max(0.0),
                 duration_beats: d.duration() * beats_per_sec,
                 velocity: d.velocity,
                 detected: *d,

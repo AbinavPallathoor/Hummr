@@ -165,3 +165,25 @@ fn transcription_midi_golden() {
     let bytes = midi::write_sequence(&t.to_sequence("twinkle"));
     insta::assert_snapshot!(midi::dump(&bytes).unwrap());
 }
+
+#[test]
+fn anchored_grid_lines_up_with_a_count_in() {
+    // One bar of silence (the count-in) at 100 BPM, then the melody starts
+    // exactly on beat 0; a stray note during the count-in must be dropped.
+    let bpm = 100.0;
+    let count_in = 4.0 * 60.0 / bpm;
+    let mut tones = synthetic::melody(&[(64, 1.0), (67, 1.0), (69, 2.0)], bpm, count_in, 0.01, 7);
+    tones.insert(0, Tone::new(60.0, 0.6, 0.4));
+    let audio = AudioBuffer::new(synthetic::hum(&tones, &HumParams::new(44_100), 7), 44_100);
+    let opts = TranscribeOptions {
+        tempo: hummr_core::transcribe::TempoChoice::Fixed(bpm),
+        key: KeyChoice::Fixed(Key::new(0, Scale::Major)),
+        grid_origin: Some(count_in),
+        ..TranscribeOptions::default()
+    };
+    let t = transcribe(&audio, &opts).unwrap();
+    let got: Vec<(u8, f64)> = t.notes.iter().map(|n| (n.pitch, n.start_beats)).collect();
+    assert_eq!(got, vec![(64, 0.0), (67, 1.0), (69, 2.0)]);
+    assert!((t.origin_seconds - count_in).abs() < 1e-9);
+    assert!(t.changes.iter().any(|c| c.message.contains("count-in")));
+}

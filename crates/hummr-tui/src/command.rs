@@ -2,9 +2,13 @@
 
 use hummr_core::fuzzy;
 
+use crate::song::Placement;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cmd {
-    Quit { force: bool },
+    Quit {
+        force: bool,
+    },
     Write(Option<String>),
     WriteQuit,
     Export(String),
@@ -13,7 +17,11 @@ pub enum Cmd {
     Tempo(String),
     Quantize(String),
     Instrument(String),
-    Record,
+    /// `:track`, `:track 2`, `:track new cello`, `:track del`, `:track name Bass`.
+    Track(String),
+    Transpose(i32),
+    /// `:record` (new layer) or `:record overwrite` (this track).
+    Record(Placement),
     Play,
     Stop,
     Animations(bool),
@@ -24,20 +32,34 @@ pub enum Cmd {
 }
 
 /// Names shown in suggestions, with their usage.
-pub const COMMANDS: [(&str, &str); 16] = [
-    ("w", ":w [file.mid]       save MIDI"),
+pub const COMMANDS: [(&str, &str); 18] = [
+    ("w", ":w [file.mid]       save MIDI (all tracks)"),
     ("q", ":q  :q!             quit / discard"),
     ("wq", ":wq                 save and quit"),
     ("export", ":export song.wav    WAV mix or .mid"),
     ("open", ":open take.wav      open .wav or .mid"),
+    (
+        "record",
+        ":record [overwrite] r: new layer · R: redo this track",
+    ),
+    (
+        "track",
+        ":track 2            switch; :track new cello, del, name Bass",
+    ),
+    ("instrument", ":instrument violin  or press i"),
+    (
+        "transpose",
+        ":transpose -12      move this track (semitones)",
+    ),
     ("key", ":key D minor        or auto / none"),
     ("tempo", ":tempo 100          or auto"),
     ("quantize", ":quantize 1/8       1/16, 1/8t, off"),
-    ("instrument", ":instrument violin  or press i"),
-    ("record", ":record             or press r"),
     ("play", ":play               or press space"),
     ("stop", ":stop               stop playback"),
-    ("retranscribe", ":retranscribe       redo from the take"),
+    (
+        "retranscribe",
+        ":retranscribe       redo a single-take song",
+    ),
     ("anim", ":anim on|off        animations"),
     ("mouse", ":mouse on|off       mouse support"),
     ("help", ":help               this screen (?)"),
@@ -77,7 +99,17 @@ pub fn parse(input: &str) -> Result<Cmd, String> {
         "tempo" | "bpm" | "t" => Cmd::Tempo(need(arg, ":tempo 100 | auto")?),
         "quantize" | "quant" | "grid" => Cmd::Quantize(need(arg, ":quantize 1/8 | off")?),
         "instrument" | "inst" | "i" => Cmd::Instrument(need(arg, ":instrument violin")?),
-        "record" | "rec" | "r" => Cmd::Record,
+        "record" | "rec" | "r" => Cmd::Record(match arg.to_ascii_lowercase().as_str() {
+            "" | "o" | "overlay" | "layer" | "new" => Placement::Overlay,
+            "w" | "overwrite" | "over" | "replace" => Placement::Overwrite,
+            _ => return Err("usage: :record (new layer) or :record overwrite (this track)".into()),
+        }),
+        "track" | "tr" => Cmd::Track(arg.to_string()),
+        "transpose" | "tp" => Cmd::Transpose(
+            arg.trim_start_matches('+')
+                .parse()
+                .map_err(|_| "usage: :transpose -12 (semitones; 12 is an octave)".to_string())?,
+        ),
         "play" | "p" => Cmd::Play,
         "stop" => Cmd::Stop,
         "anim" | "animations" => Cmd::Animations(on_off(arg, "anim")?),
@@ -145,6 +177,18 @@ mod tests {
         assert_eq!(parse(":q!"), Ok(Cmd::Quit { force: true }));
         assert_eq!(parse(":anim off"), Ok(Cmd::Animations(false)));
         assert_eq!(parse(":i violin"), Ok(Cmd::Instrument("violin".into())));
+        assert_eq!(parse(":rec"), Ok(Cmd::Record(Placement::Overlay)));
+        assert_eq!(
+            parse(":record overwrite"),
+            Ok(Cmd::Record(Placement::Overwrite))
+        );
+        assert_eq!(
+            parse(":track new cello"),
+            Ok(Cmd::Track("new cello".into()))
+        );
+        assert_eq!(parse(":transpose +12"), Ok(Cmd::Transpose(12)));
+        assert!(parse(":transpose up").is_err());
+        assert!(parse(":record sideways").is_err());
     }
 
     #[test]

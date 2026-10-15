@@ -259,6 +259,50 @@ pub struct PlayTrack {
     pub muted: bool,
 }
 
+/// A click track generated on the fly. Clicks are short noise bursts rather
+/// than tones, so if the microphone hears them they are not mistaken for
+/// sung notes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Metronome {
+    /// Samples per beat at the player's sample rate.
+    pub interval_samples: f64,
+    pub beats_per_bar: u32,
+    pub gain: f32,
+    /// Song beat at playback position 0, so bar accents land on bar lines.
+    pub beat_offset: f64,
+}
+
+impl Metronome {
+    pub fn new(bpm: f64, sample_rate: u32) -> Self {
+        Self {
+            interval_samples: 60.0 / bpm * f64::from(sample_rate),
+            beats_per_bar: 4,
+            gain: 0.35,
+            beat_offset: 0.0,
+        }
+    }
+
+    /// Clicks as if playback position 0 were song beat `beat`.
+    pub fn starting_at_beat(mut self, beat: f64) -> Self {
+        self.beat_offset = beat;
+        self
+    }
+
+    /// Click sample at absolute position `pos`, given a noise value in [-1, 1].
+    pub fn sample(&self, pos: usize, noise: f32) -> f32 {
+        let beat = (pos as f64 / self.interval_samples).floor();
+        let into = pos as f64 - beat * self.interval_samples;
+        let decay = self.interval_samples / 120.0;
+        if into > decay * 6.0 {
+            return 0.0;
+        }
+        let song_beat = (beat + self.beat_offset).round() as i64;
+        let accent = song_beat.rem_euclid(i64::from(self.beats_per_bar.max(1))) == 0;
+        let level = if accent { 1.0 } else { 0.5 };
+        noise * self.gain * level * (-(into / decay) as f32).exp()
+    }
+}
+
 #[derive(Default)]
 struct Mix {
     tracks: Vec<PlayTrack>,
@@ -266,6 +310,8 @@ struct Mix {
     playing: bool,
     peaks: Vec<f32>,
     master_peak: f32,
+    metronome: Option<Metronome>,
+    noise: u32,
 }
 
 struct PlayShared {
@@ -357,6 +403,12 @@ impl Player {
         self.with_mix(|m| m.playing = false);
     }
 
+    /// Adds (or removes) a click track. While a metronome is set, playback
+    /// continues past the end of the tracks until stopped.
+    pub fn set_metronome(&self, metronome: Option<Metronome>) {
+        self.with_mix(|m| m.metronome = metronome);
+    }
+
     pub fn is_playing(&self) -> bool {
         self.with_mix(|m| m.playing).unwrap_or(false)
     }
@@ -421,10 +473,21 @@ where
                     .map(|t| t.samples.len())
                     .max()
                     .unwrap_or(0);
+                let endless = mix.metronome.is_some();
                 let pans: Vec<(f32, f32)> = mix.tracks.iter().map(|t| pan_gains(t.pan)).collect();
                 for frame in out.chunks_mut(channels) {
                     let (mut l, mut r) = (0.0f32, 0.0f32);
-                    if mix.pos < len {
+                    if let Some(m) = mix.metronome {
+                        mix.noise = mix
+                            .noise
+                            .wrapping_mul(1_664_525)
+                            .wrapping_add(1_013_904_223);
+                        let n = (mix.noise >> 8) as f32 / (1u32 << 23) as f32 - 1.0;
+                        let c = m.sample(mix.pos, n);
+                        l += c;
+                        r += c;
+                    }
+                    if mix.pos < len || endless {
                         for (i, t) in mix.tracks.iter().enumerate() {
                             if t.muted {
                                 continue;
@@ -449,7 +512,7 @@ where
                         }
                     }
                 }
-                if mix.pos >= len {
+                if mix.pos >= len && !endless {
                     mix.playing = false;
                 }
             },
@@ -471,6 +534,19 @@ mod tests {
         assert_eq!(a.load(), 0.5);
         assert_eq!(a.take(), 0.5);
         assert_eq!(a.load(), 0.0);
+    }
+
+    #[test]
+    fn metronome_clicks_on_beats_with_accent() {
+        let m = Metronome::new(120.0, 48_000);
+        assert_eq!(m.interval_samples, 24_000.0);
+        assert!(m.sample(0, 1.0) > m.sample(24_000, 1.0));
+        assert!(m.sample(24_000, 1.0) > 0.1);
+        assert_eq!(m.sample(12_000, 1.0), 0.0);
+        assert!(m.sample(4 * 24_000, 1.0) > 0.3, "bar downbeat is accented");
+        // Starting on beat 3 of a bar: the accent comes two beats in.
+        let m = m.starting_at_beat(2.0);
+        assert!(m.sample(0, 1.0) < m.sample(2 * 24_000, 1.0));
     }
 
     #[test]

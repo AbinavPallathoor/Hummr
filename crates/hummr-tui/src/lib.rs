@@ -8,6 +8,7 @@ mod app;
 mod command;
 mod input;
 mod smooth;
+mod song;
 mod ui;
 
 use std::io::stdout;
