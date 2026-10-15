@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/vme-core", "crates/vme-cli", "crates/vme-tui"]
+members = ["crates/hummr-core", "crates/hummr-cli", "crates/hummr-tui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,8 +11,8 @@ authors = ["Abinav Pallathoor"]
 repository = "https://github.com/AbinavPallathoor/Hummr"
 
 [workspace.dependencies]
-vme-core = { path = "crates/vme-core" }
-vme-tui = { path = "crates/vme-tui" }
+hummr-core = { path = "crates/hummr-core" }
+hummr-tui = { path = "crates/hummr-tui" }
 
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
@@ -23,7 +23,7 @@ realfft = "3.5.0"
 thiserror = "2.0.21"
 
 # DSP code is painfully slow unoptimised; keep debug builds and tests usable.
-[profile.dev.package.vme-core]
+[profile.dev.package.hummr-core]
 opt-level = 2
 
 [profile.dev.package."*"]

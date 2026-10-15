@@ -1,6 +1,6 @@
-# Voice Music Editor (`vme`)
+# Hummr (`hummr`)
 
-Hum or sing a part, and `vme` turns it into notes for a real instrument.
+Hum or sing a part, and `hummr` turns it into notes for a real instrument.
 It runs offline in your terminal and is built for people who are better at code
 than at music: projects are plain text, they work with git, and everything is a
 CLI command.
@@ -20,7 +20,7 @@ You need a Rust toolchain (1.85 or newer) from <https://rustup.rs>.
 ```sh
 git clone https://github.com/AbinavPallathoor/Hummr.git
 cd Hummr
-cargo install --path crates/vme-cli     # installs the `vme` binary
+cargo install --path crates/hummr-cli     # installs the `hummr` binary
 ```
 
 ### Platform notes
@@ -32,7 +32,7 @@ cargo install --path crates/vme-cli     # installs the `vme` binary
 - **macOS:** to record, your terminal app (Terminal, iTerm2, Ghostty, VS Code
   and so on) needs microphone permission. Turn it on under **System Settings →
   Privacy & Security → Microphone**. Without permission, macOS records
-  silence instead of reporting an error, so `vme` warns you when a take is
+  silence instead of reporting an error, so `hummr` warns you when a take is
   silent.
 - **Windows:** no extra setup is needed.
 
@@ -41,9 +41,9 @@ cargo install --path crates/vme-cli     # installs the `vme` binary
 ### The editor
 
 ```sh
-vme                      # open the editor
-vme takes/take-001.wav   # open a recording (or a .mid file)
-vme --no-anim --mouse    # no animations; click and scroll with the mouse
+hummr                      # open the editor
+hummr takes/take-001.wav   # open a recording (or a .mid file)
+hummr --no-anim --mouse    # no animations; click and scroll with the mouse
 ```
 
 Press **`r`** and hum. The pitch meter shows the note you're singing as you
@@ -66,19 +66,19 @@ transcribed automatically. Then:
 In the piano roll, lighter rows are notes in the key. The instrument you pick
 is saved into the MIDI file. For now, playback and `:export *.wav` use a simple
 preview synth; real SoundFont instruments come next. To turn animations off,
-use `--no-anim`, set `VME_NO_ANIM=1`, or type `:anim off`.
+use `--no-anim`, set `HUMMR_NO_ANIM=1`, or type `:anim off`.
 
 ### Record from the command line
 
 ```sh
-vme record -o take.wav            # press Enter to stop
-vme record -o take.wav --seconds 8
+hummr record -o take.wav            # press Enter to stop
+hummr record -o take.wav --seconds 8
 ```
 
 ### Transcribe a hummed take to MIDI
 
 ```sh
-vme transcribe take.wav --key auto --quantize 1/8 -o lead.mid --explain
+hummr transcribe take.wav --key auto --quantize 1/8 -o lead.mid --explain
 ```
 
 ```
@@ -121,13 +121,13 @@ a little silence at the start.
 ### Try it without a microphone
 
 ```sh
-cargo run -p vme-core --example synth_take -- take.wav 100   # synthetic hummed Twinkle Twinkle
-vme transcribe take.wav --explain
+cargo run -p hummr-core --example synth_take -- take.wav 100   # synthetic hummed Twinkle Twinkle
+hummr transcribe take.wav --explain
 ```
 
 ## How transcription works
 
-1. **pYIN pitch tracking** (`vme-core/src/pitch`). YIN runs with 100
+1. **pYIN pitch tracking** (`hummr-core/src/pitch`). YIN runs with 100
    thresholds weighted by a Beta prior, which gives several candidate pitches
    per 5 ms frame. A Viterbi pass over a pitch/voicing HMM then chooses the
    smoothest plausible path, which removes octave jumps and glitches. It's
@@ -153,20 +153,20 @@ cargo test        # includes synthetic-audio DSP tests and golden MIDI files
 cargo clippy --all-targets -- -D warnings
 ```
 
-- Golden MIDI bytes live in `crates/vme-core/tests/golden/`. Regenerate them
+- Golden MIDI bytes live in `crates/hummr-core/tests/golden/`. Regenerate them
   with `UPDATE_GOLDEN=1 cargo test` after an intended change.
 - Readable MIDI dumps are `insta` snapshots (`cargo insta review`).
 - To print an editor screen as text, without a real terminal, run
-  `cargo run -p vme-tui --example screen -- take.wav "lll" 110 34`. The
+  `cargo run -p hummr-tui --example screen -- take.wav "lll" 110 34`. The
   second argument is a sequence of keys to press first.
 
 Workspace layout:
 
 | Crate | Purpose |
 |---|---|
-| `vme-core` | Audio engine: pitch tracking, segmentation, key, quantization, MIDI/WAV I/O. It has no UI dependencies. |
-| `vme-cli` | The `vme` binary. |
-| `vme-tui` | Terminal editor (ratatui + tachyonfx). |
+| `hummr-core` | Audio engine: pitch tracking, segmentation, key, quantization, MIDI/WAV I/O. It has no UI dependencies. |
+| `hummr-cli` | The `hummr` binary. |
+| `hummr-tui` | Terminal editor (ratatui + tachyonfx). |
 
 ## Known limitations
 

@@ -1,0 +1,20 @@
+---
+source: crates/hummr-core/src/io/midi.rs
+expression: dump(&bytes).unwrap()
+---
+format=SingleTrack timing=Metrical(u15(480)) tracks=1
+track 0
+       0  track_name "lead"
+       0  tempo 96.00 bpm
+       0  TimeSignature(4, 2, 24, 8)
+       0  KeySignature(-1, true)
+       0  ch0 ProgramChange { program: u7(40) }
+       0  ch0 note_on  D4   vel 90
+     480  ch0 note_off D4
+     480  ch0 note_on  F4   vel 90
+     720  ch0 note_off F4
+     960  ch0 note_on  A4   vel 90
+    1200  ch0 note_off A4
+    1440  ch0 note_on  A4   vel 90
+    2400  ch0 note_off A4
+    2400  EndOfTrack

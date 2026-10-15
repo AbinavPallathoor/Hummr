@@ -1,0 +1,19 @@
+[package]
+name = "hummr-core"
+description = "Audio engine for Hummr: pitch tracking, transcription, synthesis and mixing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+cpal = "0.18.2"
+hound.workspace = true
+midly.workspace = true
+realfft.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

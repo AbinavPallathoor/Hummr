@@ -818,6 +818,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62adaabb884c94955b19907d60019f4e145d091c75345379e70d1ee696f7854f"
 
 [[package]]
+name = "hummr-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hummr-core",
+ "hummr-tui",
+]
+
+[[package]]
+name = "hummr-core"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "hound",
+ "insta",
+ "midly",
+ "realfft",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "hummr-tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hummr-core",
+ "ratatui",
+ "tachyonfx",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2324,38 +2356,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vme-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "vme-core",
- "vme-tui",
-]
-
-[[package]]
-name = "vme-core"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "hound",
- "insta",
- "midly",
- "realfft",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "vme-tui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ratatui",
- "tachyonfx",
- "vme-core",
-]
 
 [[package]]
 name = "vtparse"
