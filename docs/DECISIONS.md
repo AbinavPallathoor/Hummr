@@ -47,3 +47,8 @@ One line each: decision — alternatives — why.
 - Drum classification is three rules on the first 60 ms: kick if > 40% of energy is below 250 Hz and the centroid is under 800 Hz, hat if > 50% is above 5 kHz (or centroid > 6 kHz), otherwise snare — a trained classifier — no model files, explainable, and 100% on 300 seeded beatbox-style hits and 100 kit hits.
 - Drum hits from a cut-and-snapped clip use the snapped slice positions — re-detect onsets — keeps the tightened timing.
 - Beatbox test hits come from a separate synthetic generator (lip thump, band-passed "pf", high-passed "ts", random pitch/brightness/length) — reuse the kit drums — testing the classifier only on the sounds it replaces with would prove little.
+- SoundFont playback uses rustysynth 1.3.7 (MIT, pure Rust, released 2026-10-01, actively maintained) — fluidlite/FluidSynth bindings — no C toolchain or system library needed, and it reads standard .sf2 files.
+- No SoundFont is bundled — bundling a small GM font — the freely licensed GM fonts are tens of megabytes (FluidR3 ~140 MB) and the small ones (TimGM6mb) are GPL, which doesn't fit an MIT repo; the built-in synth is the fallback and the message says how to set one up.
+- SoundFont path comes from `HUMMR_SOUNDFONT`, else `soundfont = "…"` in `$XDG_CONFIG_HOME/hummr/config.toml` (or `~/.config/hummr/config.toml`) — a CLI flag on every command — set once, works for edit and export alike.
+- The SoundFont synth runs with its own reverb/chorus off — keep them on — Hummr's effects do reverb, and a dry synth is deterministic and testable.
+- SoundFont tests build a tiny valid .sf2 (one looped sine) in code — check in a binary fixture — keeps the repo text-only and documents the file format.

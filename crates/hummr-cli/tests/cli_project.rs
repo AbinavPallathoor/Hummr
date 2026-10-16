@@ -200,3 +200,36 @@ fn clean_turns_down_hiss() {
     assert!(!ok);
     assert!(err.contains("start and length"), "{err}");
 }
+
+#[test]
+fn a_broken_soundfont_falls_back_with_a_message() {
+    let dir = tmp_dir("sf");
+    let (ok, _, err) = hummr(&dir, &["new", "Sf"]);
+    assert!(ok, "{err}");
+    let path = dir.join("sf/sf.hummr");
+    let mut p = Project::open(&path).unwrap();
+    let t = p.song.add_track("Keys");
+    let mut c = Clip::audio(0, "keys", "", 0.0, 2.0, 0.0);
+    c.kind = hummr_core::project::ClipKind::Notes {
+        length_beats: 4.0,
+        voice: hummr_core::project::Voice::Instrument { program: 0 },
+        notes: vec![hummr_core::project::Note {
+            pitch: 60,
+            beat: 0.0,
+            len: 1.0,
+            vel: 100,
+        }],
+    };
+    p.song.insert_clip(t, c);
+    p.save().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_hummr"))
+        .current_dir(&dir)
+        .env("HUMMR_SOUNDFONT", dir.join("missing.sf2"))
+        .args(["export", "sf/sf.hummr", "-o", "out.wav"])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{err}");
+    assert!(err.contains("built-in synth"), "{err}");
+    assert!(dir.join("out.wav").exists());
+}

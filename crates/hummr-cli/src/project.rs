@@ -48,6 +48,9 @@ pub fn export(args: ExportArgs) -> Result<()> {
     let out = args
         .output
         .unwrap_or_else(|| args.project.with_extension("wav"));
+    if hummr_core::soundfont::configured_path().is_some() {
+        eprintln!("{}", hummr_core::soundfont::init());
+    }
     let e = export::export(&p.song, &p.sources, &out)?;
     if e.notes > 0 {
         println!(
