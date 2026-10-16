@@ -30,3 +30,9 @@ One line each: decision — alternatives — why.
 - `hummr snap` defaults to a 1/16 grid and strength 1 — 1/8 — beatbox hats are often 16ths; 1/8 would pull them onto the wrong line.
 - Time-stretch is WSOLA with 42 ms Hann frames, 50% overlap and a ±12 ms coarse-to-fine similarity search — phase vocoder — WSOLA keeps a single voice clean with no phasiness and is simple to make exact-length; drums are handled by slicing instead.
 - Pitch-shift = stretch by the pitch ratio, then windowed-sinc resample back — a separate pitch-shifting algorithm — reuses two tested pieces; formants move with pitch (documented in LIMITS.md).
+- Effects are a per-clip/track/master `FxChain` of one preset + amount, four plain sliders (drive, reverb, echo, filter) and an optional raw effect list — a free-form plugin chain only — the inspector stays one screen of simple controls; raw effects keep the file format open for later.
+- Every preset is a recipe interpolated by its amount (frequencies exponentially), so amount 0 is exactly the dry signal — fixed preset settings plus a wet/dry knob — wet/dry on distortion/bitcrush mixes two loudly different signals and sounds like two layers.
+- Reverb is Freeverb (8 combs + 4 allpasses, right channel spread by 23 samples) — convolution with a generated impulse — no impulse files, cheap, deterministic, well known.
+- Echo time is in beats (default 3/4) so it follows the song tempo — milliseconds — echoes on the beat are what people want by default.
+- Effect tails are rendered past the clip end and trimmed once below −90 dB — cut at the clip end — reverb/echo tails cut off audibly.
+- Master bus ends in a 5 ms look-ahead limiter at −1 dBFS, transparent below the ceiling — a clipper — no added distortion on loud mixes; exported files never clip.
