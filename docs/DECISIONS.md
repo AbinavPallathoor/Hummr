@@ -52,3 +52,7 @@ One line each: decision — alternatives — why.
 - SoundFont path comes from `HUMMR_SOUNDFONT`, else `soundfont = "…"` in `$XDG_CONFIG_HOME/hummr/config.toml` (or `~/.config/hummr/config.toml`) — a CLI flag on every command — set once, works for edit and export alike.
 - The SoundFont synth runs with its own reverb/chorus off — keep them on — Hummr's effects do reverb, and a dry synth is deterministic and testable.
 - SoundFont tests build a tiny valid .sf2 (one looped sine) in code — check in a binary fixture — keeps the repo text-only and documents the file format.
+- The timeline is a new `studio` module beside the old editor (which becomes the notes editor) — rewrite `App` into one screen — the old editor's 2,500 lines and tests keep working untouched, and the timeline starts from a clean model (the core `Song`).
+- Waveform glyphs come from the source audio (audio clips map columns back to the source region, sliced clips to their slices, notes clips draw their notes) and switch to the rendered sound once the playback engine has it — always render first — boxes appear instantly and snapshot tests stay deterministic.
+- Waveform height is a dB scale (−48 dB → ▁, 0 dB → █) — normalise each clip to its own peak — quiet takes should look quiet.
+- Minimum terminal is 80×24 with a plain "terminal too small" message below that — the old editor's 64×18 — the brief's timeline needs 80 columns for a header column plus a useful number of beats.

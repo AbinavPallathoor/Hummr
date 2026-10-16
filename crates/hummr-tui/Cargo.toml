@@ -13,3 +13,6 @@ anyhow.workspace = true
 ratatui = "0.30.2"
 tachyonfx = "0.25.2"
 hummr-core.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

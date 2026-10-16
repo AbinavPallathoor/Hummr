@@ -11,6 +11,7 @@ mod input;
 pub mod screenshot;
 mod smooth;
 mod song;
+pub mod studio;
 mod ui;
 
 use std::io::stdout;

@@ -20,24 +20,24 @@ use crate::smooth::Meter;
 use crate::song::Placement;
 
 pub const BG: Color = Color::Rgb(15, 15, 21);
-const PANEL: Color = Color::Rgb(19, 19, 27);
-const ROW_IN: Color = Color::Rgb(29, 29, 40);
-const ROW_OUT: Color = Color::Rgb(20, 20, 27);
-const BEAT: Color = Color::Rgb(36, 36, 50);
-const BAR: Color = Color::Rgb(50, 50, 68);
-const TEXT: Color = Color::Rgb(222, 222, 232);
-const DIM: Color = Color::Rgb(115, 115, 138);
-const FAINT: Color = Color::Rgb(70, 70, 90);
-const ACCENT: Color = Color::Rgb(255, 176, 64);
-const NOTE: Color = Color::Rgb(78, 196, 222);
-const NOTE_SEL: Color = Color::Rgb(255, 196, 92);
+pub(crate) const PANEL: Color = Color::Rgb(19, 19, 27);
+pub(crate) const ROW_IN: Color = Color::Rgb(29, 29, 40);
+pub(crate) const ROW_OUT: Color = Color::Rgb(20, 20, 27);
+pub(crate) const BEAT: Color = Color::Rgb(36, 36, 50);
+pub(crate) const BAR: Color = Color::Rgb(50, 50, 68);
+pub(crate) const TEXT: Color = Color::Rgb(222, 222, 232);
+pub(crate) const DIM: Color = Color::Rgb(115, 115, 138);
+pub(crate) const FAINT: Color = Color::Rgb(70, 70, 90);
+pub(crate) const ACCENT: Color = Color::Rgb(255, 176, 64);
+pub(crate) const NOTE: Color = Color::Rgb(78, 196, 222);
+pub(crate) const NOTE_SEL: Color = Color::Rgb(255, 196, 92);
 /// Notes in a visual-mode selection (other than the one under the cursor).
 const VISUAL: Color = Color::Rgb(255, 226, 168);
-const RED: Color = Color::Rgb(240, 84, 84);
-const GREEN: Color = Color::Rgb(96, 212, 128);
-const YELLOW: Color = Color::Rgb(232, 210, 92);
+pub(crate) const RED: Color = Color::Rgb(240, 84, 84);
+pub(crate) const GREEN: Color = Color::Rgb(96, 212, 128);
+pub(crate) const YELLOW: Color = Color::Rgb(232, 210, 92);
 
-fn scale(c: Color, k: f32) -> Color {
+pub(crate) fn scale(c: Color, k: f32) -> Color {
     match c {
         Color::Rgb(r, g, b) => Color::Rgb(
             (f32::from(r) * k).min(255.0) as u8,
@@ -276,7 +276,7 @@ fn trim_beat(b: f64) -> String {
     }
 }
 
-fn clock_fmt(secs: f64) -> String {
+pub(crate) fn clock_fmt(secs: f64) -> String {
     format!("{}:{:04.1}", (secs / 60.0).floor() as i64, secs % 60.0)
 }
 
@@ -845,7 +845,7 @@ fn meter_color(frac_from_bottom: f32) -> Color {
     }
 }
 
-fn draw_vmeter(buf: &mut Buffer, x: u16, y: u16, width: u16, height: u16, m: &Meter) {
+pub(crate) fn draw_vmeter(buf: &mut Buffer, x: u16, y: u16, width: u16, height: u16, m: &Meter) {
     const EIGHTHS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
     let h = f32::from(height);
     let level = m.fraction() * h;
@@ -1248,7 +1248,7 @@ fn draw_hints(f: &mut Frame, app: &App, area: Rect) {
 
 // ---- popups -------------------------------------------------------------------
 
-fn centered(area: Rect, w_pct: u16, h_pct: u16, min_w: u16, min_h: u16) -> Rect {
+pub(crate) fn centered(area: Rect, w_pct: u16, h_pct: u16, min_w: u16, min_h: u16) -> Rect {
     let w = (area.width * w_pct / 100).max(min_w).min(area.width);
     let h = (area.height * h_pct / 100).max(min_h).min(area.height);
     Rect::new(
