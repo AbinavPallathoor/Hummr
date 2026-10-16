@@ -6,7 +6,7 @@ Legend: **done** / **partial** (what is missing) / **skipped** (why) / todo.
 | Item | State | Note |
 |------|-------|------|
 | M0 Setup | done | tag + branch pushed, baseline 105 tests green, clippy clean |
-| M1 Project model | todo | |
+| M1 Project model | done | `project` module (Song/Track/Clip, lanes, split, move), TOML `format = 1` with round-trip tests, mixdown with hand-computed-sum test, undo/redo, `hummr new`, `hummr export` (.wav/.mid). Speed/pitch/effects are wired but their DSP lands in M4/M5 |
 | M2 Onsets and tempo | todo | |
 | M3 Slice, snap, match | todo | |
 | M4 Stretch and pitch-shift | todo | |

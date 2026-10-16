@@ -123,6 +123,8 @@ pub struct SongTrack<'a> {
     pub name: &'a str,
     pub program: u8,
     pub notes: &'a [SeqNote],
+    /// A drum part: written on channel 10 (General MIDI drums).
+    pub drums: bool,
 }
 
 /// A multi-track song read from a MIDI file.
@@ -226,8 +228,14 @@ pub fn write_song(
         ));
     }
     let mut tracks = vec![to_track(conductor)];
-    for (i, part) in parts.iter().enumerate() {
-        let channel = u4::new(channel_for(i));
+    let mut melodic = 0;
+    for part in parts {
+        let channel = if part.drums {
+            u4::new(9)
+        } else {
+            melodic += 1;
+            u4::new(channel_for(melodic - 1))
+        };
         let mut timed: Timed<'_> = vec![
             (
                 0,
@@ -590,11 +598,13 @@ mod tests {
                     name: "lead",
                     program: 40,
                     notes: &lead,
+                    drums: false,
                 },
                 SongTrack {
                     name: "bass",
                     program: 33,
                     notes: &bass,
+                    drums: false,
                 },
             ],
         );

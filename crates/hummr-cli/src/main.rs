@@ -1,5 +1,6 @@
 //! `hummr`: Hummr command-line interface.
 
+mod project;
 mod record;
 mod transcribe;
 
@@ -37,6 +38,10 @@ enum Command {
     Transcribe(transcribe::Args),
     /// Record from the default microphone to a WAV file.
     Record(record::Args),
+    /// Create a new song project (NAME/NAME.hummr).
+    New(project::NewArgs),
+    /// Render a project to a WAV mix (or its notes to MIDI).
+    Export(project::ExportArgs),
 }
 
 #[derive(Args, Clone, Default)]
@@ -69,6 +74,8 @@ fn main() -> ExitCode {
         Some(Command::Edit(args)) => edit(args),
         Some(Command::Transcribe(args)) => transcribe::run(args),
         Some(Command::Record(args)) => record::run(args),
+        Some(Command::New(args)) => project::new(args),
+        Some(Command::Export(args)) => project::export(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -20,7 +20,9 @@ hound = "3.5.1"
 insta = "1.49.0"
 midly = "0.5.3"
 realfft = "3.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
+toml = "1.1.8"
 
 # DSP code is painfully slow unoptimised; keep debug builds and tests usable.
 [profile.dev.package.hummr-core]

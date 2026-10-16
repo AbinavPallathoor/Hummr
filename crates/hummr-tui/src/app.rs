@@ -526,6 +526,7 @@ impl App {
                 name,
                 program: *program,
                 notes,
+                drums: false,
             })
             .collect();
         let name = path

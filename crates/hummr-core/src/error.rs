@@ -26,6 +26,9 @@ pub enum Error {
 
     #[error("{0}")]
     Audio(String),
+
+    #[error("{0}")]
+    Project(String),
 }
 
 impl Error {
