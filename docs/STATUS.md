@@ -7,7 +7,7 @@ Legend: **done** / **partial** (what is missing) / **skipped** (why) / todo.
 |------|-------|------|
 | M0 Setup | done | tag + branch pushed, baseline 105 tests green, clippy clean |
 | M1 Project model | done | `project` module (Song/Track/Clip, lanes, split, move), TOML `format = 1` with round-trip tests, mixdown with hand-computed-sum test, undo/redo, `hummr new`, `hummr export` (.wav/.mid). Speed/pitch/effects are wired but their DSP lands in M4/M5 |
-| M2 Onsets and tempo | todo | |
+| M2 Onsets and tempo | done | `onset` (spectral flux + attack refinement), `beat` (BPM, phase, downbeat, confidence, half/double), `kit` (procedural sounds), `hummr detect`. Measured on 75 jittered (±15 ms) loops 60–180 BPM: 51/51 within 1% in 80–160 (worst 0.31%), the 4 misses (60–75 BPM) have the right tempo as first alternative, worst phase error 15 ms; noise confidence 0.00, random hits ≤ 0.34 (16 seeds) |
 | M3 Slice, snap, match | todo | |
 | M4 Stretch and pitch-shift | todo | |
 | M5 Effects | todo | |

@@ -76,3 +76,30 @@ fn new_then_export() {
     assert!(!ok && err.contains("no notes"), "{err}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn detect_reports_tempo_in_plain_words() {
+    let dir = tmp_dir("detect");
+    let (audio, _) = hummr_core::synthetic::drum_loop(96.0, 4, 0, 0.2, 0.01, 5, 48_000);
+    wav::write_mono(
+        &dir.join("loop.wav"),
+        &AudioBuffer::new(audio, 48_000),
+        wav::WavFormat::Pcm16,
+    )
+    .unwrap();
+    let (ok, out, err) = hummr(&dir, &["detect", "loop.wav", "--hits"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("96 BPM, sure"), "{out}");
+    assert!(out.contains("hits found"), "{out}");
+
+    wav::write_mono(
+        &dir.join("noise.wav"),
+        &AudioBuffer::new(hummr_core::synthetic::white_noise(96_000, 0.2, 1), 48_000),
+        wav::WavFormat::Pcm16,
+    )
+    .unwrap();
+    let (ok, out, _) = hummr(&dir, &["detect", "noise.wav"]);
+    assert!(ok);
+    assert!(out.contains("no steady beat"), "{out}");
+    std::fs::remove_dir_all(&dir).ok();
+}

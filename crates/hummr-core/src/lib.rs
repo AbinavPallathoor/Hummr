@@ -13,6 +13,7 @@
 //! it makes so the CLI can explain itself.
 
 pub mod audio;
+pub mod beat;
 pub mod buffer;
 pub mod dsp;
 pub mod error;
@@ -20,7 +21,9 @@ pub mod fuzzy;
 pub mod fx;
 pub mod instruments;
 pub mod io;
+pub mod kit;
 pub mod notation;
+pub mod onset;
 pub mod pitch;
 pub mod preview;
 pub mod project;

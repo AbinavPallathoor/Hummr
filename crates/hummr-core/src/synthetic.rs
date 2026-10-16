@@ -235,3 +235,110 @@ pub fn melody(
     }
     tones
 }
+
+/// A drum in a synthetic loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drum {
+    Kick,
+    Snare,
+    Hat,
+}
+
+/// One hit of a synthetic loop: where it really is and which beat it was
+/// meant for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LoopHit {
+    pub time: f64,
+    pub beat: f64,
+    pub drum: Drum,
+}
+
+/// Beat positions (within one 4/4 bar) of a few common patterns.
+fn pattern(which: usize) -> Vec<(f64, Drum)> {
+    let mut p = match which % 3 {
+        // Straight rock beat, hats on every 8th.
+        0 => vec![
+            (0.0, Drum::Kick),
+            (1.0, Drum::Snare),
+            (2.0, Drum::Kick),
+            (3.0, Drum::Snare),
+        ],
+        // Kick pushes on the "and" of 2, hats on every 8th.
+        1 => vec![
+            (0.0, Drum::Kick),
+            (1.0, Drum::Snare),
+            (1.5, Drum::Kick),
+            (2.0, Drum::Kick),
+            (3.0, Drum::Snare),
+        ],
+        // Four on the floor: kick every beat, snare on 2 and 4, hats only
+        // on the off-beats.
+        _ => {
+            let mut v = vec![
+                (0.0, Drum::Kick),
+                (1.0, Drum::Kick),
+                (1.0, Drum::Snare),
+                (2.0, Drum::Kick),
+                (3.0, Drum::Kick),
+                (3.0, Drum::Snare),
+            ];
+            for i in 0..4 {
+                v.push((f64::from(i) + 0.5, Drum::Hat));
+            }
+            return v;
+        }
+    };
+    for i in 0..8 {
+        p.push((f64::from(i) * 0.5, Drum::Hat));
+    }
+    p
+}
+
+/// A synthetic drum loop (kick, snare and hat from [`crate::kit`]) at `bpm`
+/// for `bars` bars of 4/4, starting `offset` seconds in, with every hit
+/// moved by up to `jitter` seconds either way. Returns the audio and the
+/// true hit times.
+pub fn drum_loop(
+    bpm: f64,
+    bars: usize,
+    which: usize,
+    offset: f64,
+    jitter: f64,
+    seed: u64,
+    sample_rate: u32,
+) -> (Vec<f32>, Vec<LoopHit>) {
+    use crate::kit::{Sound, drum_hit};
+    let mut rng = Rng::new(seed);
+    let spb = 60.0 / bpm;
+    let sr = f64::from(sample_rate);
+    let mut hits = Vec::new();
+    for bar in 0..bars {
+        for &(b, drum) in &pattern(which) {
+            let beat = bar as f64 * 4.0 + b;
+            let t = offset + beat * spb + f64::from(rng.bipolar()) * jitter;
+            hits.push(LoopHit {
+                time: t.max(0.0),
+                beat,
+                drum,
+            });
+        }
+    }
+    hits.sort_by(|a, b| a.time.total_cmp(&b.time));
+    let len = ((offset + bars as f64 * 4.0 * spb + 0.5) * sr) as usize;
+    let mut out = vec![0.0f32; len];
+    for (i, h) in hits.iter().enumerate() {
+        let (sound, vel) = match h.drum {
+            Drum::Kick => (Sound::Kick, 1.0),
+            Drum::Snare => (Sound::Snare, 0.9),
+            Drum::Hat => (Sound::HatClosed, 0.45 + 0.1 * rng.bipolar().abs()),
+        };
+        let x = drum_hit(sound, vel, sample_rate, seed.wrapping_add(i as u64));
+        let at = (h.time * sr).round() as usize;
+        for (k, v) in x.iter().enumerate() {
+            if let Some(o) = out.get_mut(at + k) {
+                *o += v * 0.6;
+            }
+        }
+    }
+    (out, hits)
+}

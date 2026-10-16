@@ -1,5 +1,6 @@
 //! `hummr`: Hummr command-line interface.
 
+mod detect;
 mod project;
 mod record;
 mod transcribe;
@@ -42,6 +43,8 @@ enum Command {
     New(project::NewArgs),
     /// Render a project to a WAV mix (or its notes to MIDI).
     Export(project::ExportArgs),
+    /// Find the tempo, beat and hits of a recording.
+    Detect(detect::Args),
 }
 
 #[derive(Args, Clone, Default)]
@@ -76,6 +79,7 @@ fn main() -> ExitCode {
         Some(Command::Record(args)) => record::run(args),
         Some(Command::New(args)) => project::new(args),
         Some(Command::Export(args)) => project::export(args),
+        Some(Command::Detect(args)) => detect::run(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

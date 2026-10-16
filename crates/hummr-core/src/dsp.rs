@@ -95,6 +95,13 @@ impl Biquad {
         )
     }
 
+    /// Band-pass with 0 dB gain at the centre frequency.
+    pub fn bandpass(sample_rate: f32, freq: f32, q: f32) -> Self {
+        let (cos, sin) = Self::omega(sample_rate, freq);
+        let alpha = sin / (2.0 * q);
+        Self::from_coeffs(alpha, 0.0, -alpha, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
+    }
+
     pub fn peaking(sample_rate: f32, freq: f32, q: f32, gain_db: f32) -> Self {
         let (cos, sin) = Self::omega(sample_rate, freq);
         let a = 10f32.powf(gain_db / 40.0);
@@ -173,6 +180,14 @@ mod tests {
     fn highpass_blocks_low_and_passes_high() {
         assert!(gain_at(Biquad::highpass(44_100.0, 200.0, 0.707), 30.0) < 0.05);
         assert!((gain_at(Biquad::highpass(44_100.0, 200.0, 0.707), 2_000.0) - 1.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn bandpass_peaks_at_centre() {
+        let f = || Biquad::bandpass(44_100.0, 1_000.0, 1.0);
+        assert!((gain_at(f(), 1_000.0) - 1.0).abs() < 0.05);
+        assert!(gain_at(f(), 100.0) < 0.15);
+        assert!(gain_at(f(), 10_000.0) < 0.15);
     }
 
     #[test]
