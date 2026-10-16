@@ -100,10 +100,36 @@ pub fn slug(name: &str) -> String {
     if s.is_empty() { "sound".into() } else { s }
 }
 
-/// Reads a WAV and converts it to the project sample rate.
+/// File types that can be imported (lower case). mp3, flac and ogg need
+/// the `decode` cargo feature.
+#[cfg(feature = "decode")]
+pub const IMPORT_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg"];
+#[cfg(not(feature = "decode"))]
+pub const IMPORT_EXTENSIONS: &[&str] = &["wav"];
+
+fn is_wav(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_none_or(|e| e.eq_ignore_ascii_case("wav"))
+}
+
+/// Reads an audio file (WAV at any sample rate; mp3/flac/ogg with the
+/// `decode` feature) and converts it to the project sample rate.
 pub fn decode_to_project_rate(path: &Path) -> Result<AudioBuffer> {
-    let a = wav::read_mono(path)?;
-    Ok(to_project_rate(&a))
+    if is_wav(path) {
+        return Ok(to_project_rate(&wav::read_mono(path)?));
+    }
+    #[cfg(feature = "decode")]
+    {
+        Ok(to_project_rate(&crate::io::decode::decode_file(path)?))
+    }
+    #[cfg(not(feature = "decode"))]
+    {
+        Err(Error::Audio(format!(
+            "{} isn't a WAV file. Convert it to WAV, or build Hummr with `--features decode` to read mp3, flac and ogg",
+            path.display()
+        )))
+    }
 }
 
 pub fn to_project_rate(a: &AudioBuffer) -> AudioBuffer {
@@ -212,6 +238,19 @@ impl Project {
         self.song.sources.push(info);
         self.flush_sources()?;
         Ok(id)
+    }
+
+    /// Imports any readable audio file: WAVs are copied as they are,
+    /// other formats are decoded and stored as WAV. Returns the source id.
+    pub fn import_file(&mut self, path: &Path) -> Result<String> {
+        if is_wav(path) {
+            return self.import_wav(path);
+        }
+        let audio = decode_to_project_rate(path)?;
+        let name = path
+            .file_stem()
+            .map_or_else(|| "sample".into(), |s| s.to_string_lossy().into_owned());
+        Ok(self.add_audio(&name, audio, None))
     }
 
     /// Adds audio (a recording, a generated sample) as a new source.

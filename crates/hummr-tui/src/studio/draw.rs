@@ -110,11 +110,17 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
     draw_ruler(buf, s, Rect::new(lanes.x, y0 + 3, lanes.width, 2));
     let rows_area = Rect::new(x0 + 1, y0 + 6, w - 2, h - CHROME_H);
     draw_rows(buf, s, rows_area, sep_x);
+    draw_recording(buf, s, rows_area, sep_x + 1);
     draw_status(buf, s, Rect::new(x0 + 1, y0 + h - 3, w - 2, 1));
     draw_bottom(buf, s, Rect::new(x0 + 1, y0 + h - 2, w - 2, 1));
 
-    if s.mode == Mode::Help {
-        draw_help(f, area);
+    match &s.mode {
+        Mode::Help => draw_help(f, area),
+        Mode::Import(p) => {
+            let p = p.clone();
+            draw_import(f, area, &p);
+        }
+        _ => {}
     }
 }
 
@@ -332,6 +338,47 @@ fn draw_rows(buf: &mut Buffer, s: &mut Studio, r: Rect, sep_x: u16) {
     }
 }
 
+/// The take being recorded: a red box growing from where it started.
+fn draw_recording(buf: &mut Buffer, s: &Studio, r: Rect, lane_x: u16) {
+    let Some(rec) = &s.recording else { return };
+    let rows = s.rows();
+    let Some(vi) = rows
+        .iter()
+        .position(|row| row.track == rec.track)
+        .filter(|&vi| vi >= s.row_scroll && vi < s.row_scroll + s.visible_rows)
+    else {
+        return;
+    };
+    let y = r.y + ((vi - s.row_scroll) as u16) * LANE_H;
+    let a = s.view.beat_to_col(rec.at_beat).round() as i64;
+    let b = (s.view.beat_to_col(rec.beat).round() as i64).max(a);
+    let cols = i64::from(s.lane_cols);
+    let style = Style::default().fg(RED);
+    for col in a.max(0)..=b.min(cols - 1) {
+        let x = lane_x + col as u16;
+        let (top, mid, bot) = if col == a {
+            ('┌', '│', '└')
+        } else if col == b {
+            ('┐', '│', '┘')
+        } else {
+            ('─', glyph(rec.level), '─')
+        };
+        buf[(x, y)].set_char(top).set_style(style);
+        buf[(x, y + 1)].set_char(mid).set_style(style);
+        buf[(x, y + 2)].set_char(bot).set_style(style);
+    }
+    if b - a >= 8 && a + 2 < cols && a >= 0 {
+        put(
+            buf,
+            lane_x + a as u16 + 2,
+            y,
+            " ● rec ",
+            lane_x + b.min(cols - 1) as u16,
+            style,
+        );
+    }
+}
+
 fn draw_status(buf: &mut Buffer, s: &Studio, r: Rect) {
     let song = s.song();
     let max = r.x + r.width;
@@ -340,6 +387,26 @@ fn draw_status(buf: &mut Buffer, s: &Studio, r: Rect) {
     let bar_no = (ph / bar).floor() as i64 + 1;
     let beat = ph - (bar_no - 1) as f64 * bar + 1.0;
     let end = song.beats_to_seconds(song.end_beats());
+    if let Some(rec) = &s.recording {
+        let text = match rec.count_left {
+            Some(n) => format!(" ● count-in: {n}…  get ready"),
+            None => format!(
+                " ● REC  {}  bar {} · beat {}",
+                fmt_time(song.beats_to_seconds((rec.beat - rec.at_beat).max(0.0))),
+                (rec.beat / bar).floor() as i64 + 1,
+                fmt_beats((rec.beat - (rec.beat / bar).floor() * bar + 1.0).floor())
+            ),
+        };
+        put(
+            buf,
+            r.x,
+            r.y,
+            &text,
+            max,
+            Style::default().fg(RED).add_modifier(Modifier::BOLD),
+        );
+        return;
+    }
     let icon = if s.playing { "▶" } else { "■" };
     let mut text = format!(
         " {icon} {} / {}   bar {bar_no} · beat {}",
@@ -390,54 +457,133 @@ fn draw_bottom(buf: &mut Buffer, s: &Studio, r: Rect) {
 pub const HELP: &[(&str, &str)] = &[
     ("", "Moving around"),
     ("h / l", "move the playhead one snap step left / right"),
-    ("j / k", "next / previous row (track or overlap lane)"),
+    ("j / k", "next / previous row (a track, or an overlap lane)"),
     ("{ / }", "previous / next bar"),
     ("Home / End", "start / end of the song"),
-    ("+ / - / 0", "zoom in / out / fit everything"),
+    ("+ / - / 0", "zoom in / zoom out / fit the whole song"),
+    ("", "Playing and recording"),
+    ("space", "play / stop from the playhead"),
+    (
+        "r",
+        "record on this track at the playhead (one bar of clicks first)",
+    ),
+    ("i", "import a sample (built-in sounds or WAV files)"),
+    ("", "Clips (the clip under the playhead on this row)"),
+    ("H / L", "move the clip one snap step earlier / later"),
+    ("J / K", "move the clip to the track below / above"),
+    ("s", "split the clip at the playhead"),
+    ("x", "delete the clip"),
+    ("y / p", "copy the clip / paste it at the playhead"),
+    ("d", "duplicate the clip right after itself"),
+    (
+        "Enter",
+        "open the clip's inspector: turn into, effects, fix",
+    ),
+    ("e", "edit the notes of a notes clip (Esc comes back)"),
+    ("", "Tracks and song"),
+    ("n", "new track"),
+    ("m / S", "mute / solo this track"),
+    ("M", "show or hide the mixer"),
+    ("< / >", "tempo down / up by 1 BPM"),
+    ("T", "tap the tempo (press a few times in time)"),
+    ("u / Ctrl-r", "undo / redo"),
+    ("?", "this help"),
+    (":", "type a command (below)"),
+    ("q", "quit"),
+    ("", "Commands"),
+    (":bpm 120", "set the tempo (also :bpm half, :bpm double)"),
+    (":time 3/4", "time signature (4/4 or 3/4)"),
+    (":key A minor", "song key (or :key none)"),
+    (":snap 1/8", "snap size: 1/4, 1/8, 1/16, 1/8t or off"),
+    (
+        ":track name X",
+        "rename this track (:track delete removes it)",
+    ),
+    (
+        ":w [file]",
+        "save (to a new file if given); :q quits, :q! without saving",
+    ),
+    (
+        ":export x.wav",
+        "export the song as WAV (or .mid for the notes clips)",
+    ),
+    (":anim on|off", "animations"),
 ];
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = crate::ui::centered(area, 80, 80, 60, 16);
+    let r = crate::ui::centered(area, 92, 92, 76, 20);
     let buf = f.buffer_mut();
     for y in r.y..r.y + r.height {
         for x in r.x..r.x + r.width {
             buf[(x, y)].set_char(' ').set_bg(BG).set_fg(TEXT);
         }
     }
-    let mut y = r.y + 1;
+    let border = Style::default().fg(ACCENT);
+    hline(buf, r.x, r.x + r.width, r.y, '─', border);
+    hline(buf, r.x, r.x + r.width, r.y + r.height - 1, '─', border);
     put(
         buf,
         r.x + 2,
-        y,
-        "Help (Esc to close)",
+        r.y,
+        " Help · Esc to close ",
         r.x + r.width,
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
     );
-    y += 2;
-    for (k, what) in HELP {
-        if y >= r.y + r.height - 1 {
+    // Two columns when the list doesn't fit in one.
+    let rows = usize::from(r.height.saturating_sub(2));
+    let cols = if HELP.len() > rows && r.width >= 100 {
+        2
+    } else {
+        1
+    };
+    let col_w = r.width / cols as u16;
+    for (i, (k, what)) in HELP.iter().enumerate() {
+        let c = i / rows.max(1);
+        if c >= cols {
             break;
         }
+        let x = r.x + 1 + c as u16 * col_w;
+        let y = r.y + 1 + (i % rows.max(1)) as u16;
+        let max = x + col_w - 1;
         if k.is_empty() {
-            put(
-                buf,
-                r.x + 2,
-                y,
-                what,
-                r.x + r.width,
-                Style::default().fg(ACCENT),
-            );
+            put(buf, x + 1, y, what, max, Style::default().fg(ACCENT));
         } else {
-            put(buf, r.x + 4, y, k, r.x + r.width, Style::default().fg(TEXT));
-            put(
-                buf,
-                r.x + 18,
-                y,
-                what,
-                r.x + r.width - 1,
-                Style::default().fg(DIM),
-            );
+            put(buf, x + 2, y, k, max, Style::default().fg(TEXT));
+            put(buf, x + 17, y, what, max, Style::default().fg(DIM));
         }
-        y += 1;
+    }
+}
+
+fn draw_import(f: &mut Frame, area: Rect, p: &super::import::Picker) {
+    let r = crate::ui::centered(area, 60, 70, 50, 14);
+    let buf = f.buffer_mut();
+    for y in r.y..r.y + r.height {
+        for x in r.x..r.x + r.width {
+            buf[(x, y)].set_char(' ').set_bg(BG).set_fg(TEXT);
+        }
+    }
+    let border = Style::default().fg(ACCENT);
+    hline(buf, r.x, r.x + r.width, r.y, '─', border);
+    hline(buf, r.x, r.x + r.width, r.y + r.height - 1, '─', border);
+    put(
+        buf,
+        r.x + 2,
+        r.y,
+        " Import a sample · j/k choose · Enter add · Esc close ",
+        r.x + r.width,
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    );
+    let rows = usize::from(r.height.saturating_sub(2));
+    let first = p.sel.saturating_sub(rows.saturating_sub(1));
+    for (i, item) in p.items.iter().enumerate().skip(first).take(rows) {
+        let y = r.y + 1 + (i - first) as u16;
+        let sel = i == p.sel;
+        let style = if sel {
+            Style::default().fg(BG).bg(ACCENT)
+        } else {
+            Style::default().fg(TEXT)
+        };
+        let text = format!("{} {}", if sel { "▸" } else { " " }, item.label());
+        put(buf, r.x + 2, y, &text, r.x + r.width - 2, style);
     }
 }

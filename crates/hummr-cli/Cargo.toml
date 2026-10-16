@@ -18,3 +18,7 @@ clap.workspace = true
 hummr-core.workspace = true
 
 hummr-tui.workspace = true
+
+[features]
+# Import mp3, flac and ogg files as well as WAV.
+decode = ["hummr-core/decode"]

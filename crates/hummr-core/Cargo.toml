@@ -17,6 +17,11 @@ serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 rustysynth.workspace = true
+symphonia = { version = "0.6.1", optional = true, default-features = false, features = ["mp3", "flac", "ogg", "vorbis"] }
+
+[features]
+# Import mp3, flac and ogg files as well as WAV.
+decode = ["dep:symphonia"]
 
 [dev-dependencies]
 insta.workspace = true

@@ -324,6 +324,10 @@ impl Metronome {
 struct Mix {
     tracks: Vec<PlayTrack>,
     pos: usize,
+    /// Frames of clicks-only lead-in left before the tracks start.
+    preroll: usize,
+    /// Frames since playback started (the metronome's clock).
+    click_pos: usize,
     playing: bool,
     peaks: Vec<f32>,
     master_peak: f32,
@@ -436,8 +440,16 @@ impl Player {
     }
 
     pub fn play_from(&self, sample: usize) {
+        self.play_after(sample, 0);
+    }
+
+    /// Plays `preroll` frames of metronome only (a count-in before the
+    /// song's start), then the tracks from `sample`.
+    pub fn play_after(&self, sample: usize, preroll: usize) {
         self.with_mix(|m| {
             m.pos = sample;
+            m.preroll = preroll;
+            m.click_pos = 0;
             m.playing = true;
         });
     }
@@ -526,11 +538,14 @@ where
                             .wrapping_mul(1_664_525)
                             .wrapping_add(1_013_904_223);
                         let n = (mix.noise >> 8) as f32 / (1u32 << 23) as f32 - 1.0;
-                        let c = m.sample(mix.pos, n);
+                        let c = m.sample(mix.click_pos, n);
                         l += c;
                         r += c;
                     }
-                    if mix.pos < len || endless {
+                    mix.click_pos += 1;
+                    if mix.preroll > 0 {
+                        mix.preroll -= 1;
+                    } else if mix.pos < len || endless {
                         for (i, t) in mix.tracks.iter().enumerate() {
                             if t.muted {
                                 continue;
@@ -559,7 +574,7 @@ where
                         }
                     }
                 }
-                if mix.pos >= len && !endless {
+                if mix.pos >= len && !endless && mix.preroll == 0 {
                     mix.playing = false;
                 }
             },

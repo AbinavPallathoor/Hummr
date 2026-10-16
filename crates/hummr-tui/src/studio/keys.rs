@@ -15,6 +15,29 @@ pub fn on_key(s: &mut Studio, key: KeyEvent) {
     }
     match s.mode.clone() {
         Mode::Normal => normal(s, key, ctrl),
+        Mode::Recording => match key.code {
+            KeyCode::Char('r') | KeyCode::Char(' ') | KeyCode::Enter => s.stop_recording(true),
+            KeyCode::Esc => s.stop_recording(false),
+            _ => {}
+        },
+        Mode::Import(mut p) => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => s.mode = Mode::Normal,
+            KeyCode::Char('j') | KeyCode::Down => {
+                p.sel = (p.sel + 1).min(p.items.len().saturating_sub(1));
+                s.mode = Mode::Import(p);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                p.sel = p.sel.saturating_sub(1);
+                s.mode = Mode::Import(p);
+            }
+            KeyCode::Enter => {
+                s.mode = Mode::Normal;
+                if let Some(item) = p.items.get(p.sel).cloned() {
+                    s.import_item(&item);
+                }
+            }
+            _ => {}
+        },
         Mode::Command(text) => command_line(s, key, text),
         Mode::Help => {
             if matches!(
@@ -27,10 +50,16 @@ pub fn on_key(s: &mut Studio, key: KeyEvent) {
     }
 }
 
-fn normal(s: &mut Studio, key: KeyEvent, _ctrl: bool) {
+fn normal(s: &mut Studio, key: KeyEvent, ctrl: bool) {
     // Any key clears an old message.
     s.message = None;
     let step = s.song().snap_beats();
+    if ctrl {
+        if key.code == KeyCode::Char('r') {
+            s.redo();
+        }
+        return;
+    }
     match key.code {
         KeyCode::Char('h') | KeyCode::Left => s.seek(s.playhead - step),
         KeyCode::Char('l') | KeyCode::Right => s.seek(s.playhead + step),
@@ -47,6 +76,23 @@ fn normal(s: &mut Studio, key: KeyEvent, _ctrl: bool) {
         KeyCode::Char('-') | KeyCode::Char('_') => s.zoom(-1),
         KeyCode::Char('0') => s.fit(),
         KeyCode::Char(' ') => s.toggle_play(),
+        KeyCode::Char('H') => s.nudge_clip(-1.0),
+        KeyCode::Char('L') => s.nudge_clip(1.0),
+        KeyCode::Char('J') => s.shift_clip_track(1),
+        KeyCode::Char('K') => s.shift_clip_track(-1),
+        KeyCode::Char('s') => s.split(),
+        KeyCode::Char('x') | KeyCode::Delete => s.delete_clip(),
+        KeyCode::Char('y') => s.copy_clip(),
+        KeyCode::Char('p') => s.paste(),
+        KeyCode::Char('d') => s.duplicate(),
+        KeyCode::Char('u') => s.undo(),
+        KeyCode::Char('m') => s.toggle_mute(),
+        KeyCode::Char('S') => s.toggle_solo(),
+        KeyCode::Char('n') => {
+            s.new_track(None);
+        }
+        KeyCode::Char('r') => s.start_recording(),
+        KeyCode::Char('i') => s.open_import(),
         KeyCode::Char('?') => s.mode = Mode::Help,
         KeyCode::Char(':') => s.mode = Mode::Command(String::new()),
         KeyCode::Char('q') => s.request_quit(false),

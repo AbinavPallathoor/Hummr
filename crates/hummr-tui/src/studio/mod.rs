@@ -4,11 +4,14 @@
 
 pub mod command;
 pub mod draw;
+pub mod edit;
 pub mod engine;
 #[doc(hidden)]
 pub mod fixture;
+pub mod import;
 pub mod keys;
 pub mod peaks;
+pub mod record;
 
 use std::time::Duration;
 
@@ -31,6 +34,10 @@ pub enum Mode {
     /// Typing a `:` command.
     Command(String),
     Help,
+    /// Recording (see `Studio::recording`).
+    Recording,
+    /// Picking a sample to import.
+    Import(import::Picker),
 }
 
 /// One visible row: a track's lane.
@@ -95,6 +102,10 @@ pub struct Studio {
     pub message: Option<(String, Level)>,
     pub animations: bool,
     pub peaks: peaks::PeakCache,
+    pub clipboard: Option<Clip>,
+    pub recording: Option<record::Recording>,
+    /// A clip to highlight briefly (id, clock when added).
+    pub flash: Option<(u64, f64)>,
     pub engine: engine::Engine,
     /// Bumped on every change to the song, so the engine knows to sync.
     pub version: u64,
@@ -134,6 +145,9 @@ impl Studio {
             message: None,
             animations: opts.animations,
             peaks: peaks::PeakCache::default(),
+            clipboard: None,
+            recording: None,
+            flash: None,
             engine: if opts.audio {
                 engine::Engine::open()
             } else {
@@ -183,6 +197,7 @@ impl Studio {
         for (clip, bpm, audio) in self.engine.poll(&self.project.song) {
             self.peaks.rendered.insert(clip.id, (clip, bpm, audio));
         }
+        self.tick_recording();
         self.engine.advance(dt.as_secs_f64());
         if self.playing {
             if self.engine.is_playing() {
@@ -195,7 +210,7 @@ impl Studio {
 
     /// Whether the screen needs redrawing every frame.
     pub fn is_live(&self) -> bool {
-        self.playing || !self.engine.is_ready()
+        self.playing || self.recording.is_some() || !self.engine.is_ready()
     }
 
     /// Changes the song as one undoable step called `label`.

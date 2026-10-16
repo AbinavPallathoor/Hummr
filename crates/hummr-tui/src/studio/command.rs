@@ -39,6 +39,21 @@ pub fn run(s: &mut Studio, line: &str) {
             }
         }
         "export" => export_to(s, arg),
+        "track" => {
+            let (sub, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
+            match sub {
+                "name" | "rename" => s.rename_track(rest),
+                "delete" | "del" | "remove" => s.delete_track(),
+                "new" | "add" => {
+                    let name = (!rest.trim().is_empty()).then(|| rest.trim().to_string());
+                    s.new_track(name);
+                }
+                _ => s.say(
+                    "Use :track name NAME, :track new [NAME] or :track delete.",
+                    Level::Error,
+                ),
+            }
+        }
         "anim" | "animations" => match arg {
             "on" | "" => {
                 s.animations = true;
