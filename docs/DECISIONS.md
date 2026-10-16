@@ -28,3 +28,5 @@ One line each: decision — alternatives — why.
 - The M3 test loops jitter per time slot (a kick and hat meant together move together); the M2 tempo test keeps per-drum jitter — per-drum jitter everywhere — independent jitter makes 30 ms flams that no slicer can treat as one hit, and a beatboxed sound covers both drums at once.
 - "Match to song" defaults: rhythmic clips (≥ 2 hits/s and confidence ≥ 0.3) are cut and snapped to 1/8 at full strength; others keep their sound — always stretch — matches the brief, and cutting keeps drums crisp.
 - `hummr snap` defaults to a 1/16 grid and strength 1 — 1/8 — beatbox hats are often 16ths; 1/8 would pull them onto the wrong line.
+- Time-stretch is WSOLA with 42 ms Hann frames, 50% overlap and a ±12 ms coarse-to-fine similarity search — phase vocoder — WSOLA keeps a single voice clean with no phasiness and is simple to make exact-length; drums are handled by slicing instead.
+- Pitch-shift = stretch by the pitch ratio, then windowed-sinc resample back — a separate pitch-shifting algorithm — reuses two tested pieces; formants move with pitch (documented in LIMITS.md).
