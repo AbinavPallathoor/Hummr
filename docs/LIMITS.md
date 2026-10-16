@@ -63,3 +63,17 @@ What you will probably hear:
   sound out. Pick the noise region by hand in that case.
 - High strengths can leave faint warbling ("musical noise") in what remains
   of the hiss; lower the strength if you hear it.
+
+## Turn into notes / own sound / drums
+
+- **Notes** uses the same hum-to-notes transcriber as `hummr transcribe`
+  (one note at a time; chords and fast runs are not supported).
+- **Own sound** plays your recording at other pitches by pitch-shifting
+  it, so the limits of pitch-shifting apply: past a few semitones the
+  voice sounds smaller or bigger. Notes more than an octave away from the
+  recorded note are played an octave closer. Notes longer than the sound
+  stretch it (up to 4×); very long notes may sound grainy.
+- **Drums** sorts each hit into kick, snare or hat by where its energy
+  sits (low thump, mid noise, high hiss). Measured on synthetic hits only;
+  hits that sound like two drums at once become one drum, and toms,
+  cymbals and claps become the nearest of the three.

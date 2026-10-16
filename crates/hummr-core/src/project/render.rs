@@ -6,7 +6,7 @@
 //! track's effects. The mix applies each track's volume, balance, mute and
 //! solo, then the master effects and a limiter.
 
-use super::{Clip, ClipKind, Song, SourceBank, Stretch};
+use super::{Clip, ClipKind, Song, SourceBank, Stretch, Voice};
 use crate::AudioBuffer;
 use crate::dsp::db_to_amp;
 use crate::fx;
@@ -156,7 +156,7 @@ fn time_ratio(song: &Song, clip: &Clip) -> f64 {
 /// the unit length (notes ring out).
 /// The source with the clip's region (plus a little either side, for
 /// slice crossfades) noise-cleaned, if the clip asks for it.
-fn cleaned_source(audio: &AudioBuffer, clip: &Clip) -> Option<AudioBuffer> {
+pub(crate) fn cleaned_source(audio: &AudioBuffer, clip: &Clip) -> Option<AudioBuffer> {
     if clip.clean <= 0.0 || audio.samples.is_empty() {
         return None;
     }
@@ -183,8 +183,14 @@ fn render_unit(song: &Song, clip: &Clip, bank: &SourceBank) -> Vec<f32> {
     let empty = AudioBuffer::new(Vec::new(), sr);
     let original = bank.get(&clip.source).map_or(&empty, |a| a.as_ref());
     let cleaned = match clip.kind {
+        // Only the sampler plays the source itself.
+        ClipKind::Notes {
+            voice: Voice::Sampler { .. },
+            ..
+        }
+        | ClipKind::Audio
+        | ClipKind::Sliced { .. } => cleaned_source(original, clip),
         ClipKind::Notes { .. } => None,
-        _ => cleaned_source(original, clip),
     };
     let audio = cleaned.as_ref().unwrap_or(original);
     match &clip.kind {

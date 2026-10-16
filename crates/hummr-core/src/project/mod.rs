@@ -9,6 +9,7 @@
 //! Positions on the timeline are in beats (quarter notes). Lengths inside
 //! sources are in seconds.
 
+pub mod convert;
 pub mod export;
 pub mod file;
 pub mod history;

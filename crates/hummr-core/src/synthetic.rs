@@ -383,3 +383,101 @@ fn render_loop(
     }
     (out, hits)
 }
+
+/// A beatboxed-sounding hit, deliberately unlike the kit's drums: a lip
+/// "b" (low thump), a "pf"/"k" (mid noise burst with a little body) or a
+/// "ts" (high hiss), each with seeded random pitch, brightness, length and
+/// breath noise.
+pub fn beatbox_hit(drum: Drum, seed: u64, sample_rate: u32) -> Vec<f32> {
+    use crate::dsp::Biquad;
+    let mut rng = Rng::new(seed.wrapping_add(drum as u64 * 104_729));
+    let sr = sample_rate as f32;
+    let u = |r: &mut Rng| 0.5 + 0.5 * r.bipolar();
+    let level = 0.4 + 0.5 * u(&mut rng);
+    let breath = 0.002 + 0.01 * u(&mut rng);
+    type Voice = Box<dyn FnMut(f32, &mut Rng) -> f32>;
+    let (len, mut voice): (f32, Voice) = match drum {
+        Drum::Kick => {
+            let f0 = 55.0 + 60.0 * u(&mut rng);
+            let decay = 0.04 + 0.06 * u(&mut rng);
+            let burst = 0.1 + 0.25 * u(&mut rng);
+            let mut lp = Biquad::lowpass(sr, 400.0 + 400.0 * u(&mut rng), 0.7);
+            let mut phase = 0.0f32;
+            (
+                0.25,
+                Box::new(move |t, r| {
+                    let f = f0 * (1.0 + 1.5 * (-t / 0.012).exp());
+                    phase = (phase + f / sr).fract();
+                    let body = (2.0 * PI * phase).sin() * (-t / decay).exp();
+                    let pop = lp.process(r.bipolar()) * burst * (-t / 0.006).exp();
+                    body + pop
+                }),
+            )
+        }
+        Drum::Snare => {
+            let centre = 1_000.0 + 2_000.0 * u(&mut rng);
+            let decay = 0.03 + 0.07 * u(&mut rng);
+            let body_hz = 140.0 + 120.0 * u(&mut rng);
+            let body_amt = 0.1 + 0.3 * u(&mut rng);
+            let mut bp = Biquad::bandpass(sr, centre, 0.6 + 0.6 * u(&mut rng));
+            let mut phase = 0.0f32;
+            (
+                0.25,
+                Box::new(move |t, r| {
+                    phase = (phase + body_hz / sr).fract();
+                    let noise = bp.process(r.bipolar()) * 2.0 * (-t / decay).exp();
+                    let body = (2.0 * PI * phase).sin() * body_amt * (-t / 0.03).exp();
+                    noise + body
+                }),
+            )
+        }
+        Drum::Hat => {
+            let cut = 4_000.0 + 3_000.0 * u(&mut rng);
+            let decay = 0.012 + 0.05 * u(&mut rng);
+            let mut hp = Biquad::highpass(sr, cut, 0.7);
+            let mut hp2 = Biquad::highpass(sr, cut, 0.7);
+            (
+                0.2,
+                Box::new(move |t, r| {
+                    hp2.process(hp.process(r.bipolar())) * 1.5 * (-t / decay).exp()
+                }),
+            )
+        }
+    };
+    let n = (len * sr) as usize;
+    let mut out: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / sr;
+            let b = breath * rng.bipolar();
+            level * voice(t, &mut rng) + b
+        })
+        .collect();
+    // 2 ms fade-in and 15 ms fade-out so the hit itself has no clicks.
+    let fi = (0.002 * sr) as usize;
+    for (i, s) in out.iter_mut().take(fi).enumerate() {
+        *s *= i as f32 / fi as f32;
+    }
+    let fo = (0.015 * sr) as usize;
+    for k in 0..fo {
+        out[n - fo + k] *= 1.0 - (k + 1) as f32 / fo as f32;
+    }
+    out
+}
+
+/// A beatboxed pattern: [`beatbox_hit`]s at the given times (seconds).
+pub fn beatbox(hits: &[(f64, Drum)], seed: u64, sample_rate: u32) -> Vec<f32> {
+    let end = hits.iter().map(|h| h.0).fold(0.0, f64::max) + 0.5;
+    let mut out = vec![0.0f32; (end * f64::from(sample_rate)) as usize];
+    for (i, &(t, d)) in hits.iter().enumerate() {
+        let at = (t * f64::from(sample_rate)).round() as usize;
+        for (k, v) in beatbox_hit(d, seed.wrapping_add(i as u64), sample_rate)
+            .iter()
+            .enumerate()
+        {
+            if let Some(o) = out.get_mut(at + k) {
+                *o += v;
+            }
+        }
+    }
+    out
+}
