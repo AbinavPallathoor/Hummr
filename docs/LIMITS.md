@@ -48,3 +48,18 @@ What you will probably hear:
   instead (then nothing needs detecting).
 - Real recordings with reverb, background music or very soft hits have not
   been measured.
+
+## Noise cleanup
+
+- Works on **steady** background noise only: hiss, fan or air-conditioning
+  rush, mains hum. It learns the noise from a quiet moment and turns down
+  whatever matches it. Voices, music, traffic, clicks and other sounds that
+  come and go are louder than the learned noise, so they are kept.
+- Measured on white hiss under a 440 Hz tone at strength 0.8: the noise
+  between notes drops about 18 dB, the noise under the tone about 15 dB,
+  and the tone's level changes by less than 0.01 dB.
+- If no quiet moment exists (the clip is sung from start to end), the
+  learned "noise" includes some of the voice and the cleanup will thin the
+  sound out. Pick the noise region by hand in that case.
+- High strengths can leave faint warbling ("musical noise") in what remains
+  of the hiss; lower the strength if you hear it.

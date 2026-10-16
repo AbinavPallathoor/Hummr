@@ -154,10 +154,39 @@ fn time_ratio(song: &Song, clip: &Clip) -> f64 {
 
 /// One repeat of a clip, mono, before fades, effects and gain. May run past
 /// the unit length (notes ring out).
+/// The source with the clip's region (plus a little either side, for
+/// slice crossfades) noise-cleaned, if the clip asks for it.
+fn cleaned_source(audio: &AudioBuffer, clip: &Clip) -> Option<AudioBuffer> {
+    if clip.clean <= 0.0 || audio.samples.is_empty() {
+        return None;
+    }
+    let sr = audio.sample_rate;
+    let profile = match clip.noise_region {
+        Some([start, len]) if len > 0.0 => crate::denoise::learn(&region(audio, start, len), sr),
+        _ => crate::denoise::learn_auto(&region(audio, clip.source_start, clip.source_len), sr),
+    };
+    let margin = 0.05;
+    let from = ((clip.source_start - margin).max(0.0) * f64::from(sr)).round() as usize;
+    let to = (((clip.source_start + clip.source_len + margin) * f64::from(sr)).round() as usize)
+        .min(audio.samples.len());
+    if from >= to {
+        return None;
+    }
+    let mut out = audio.clone();
+    let cleaned = crate::denoise::denoise(&audio.samples[from..to], sr, &profile, clip.clean);
+    out.samples[from..to].copy_from_slice(&cleaned);
+    Some(out)
+}
+
 fn render_unit(song: &Song, clip: &Clip, bank: &SourceBank) -> Vec<f32> {
     let sr = song.sample_rate;
     let empty = AudioBuffer::new(Vec::new(), sr);
-    let audio = bank.get(&clip.source).map_or(&empty, |a| a.as_ref());
+    let original = bank.get(&clip.source).map_or(&empty, |a| a.as_ref());
+    let cleaned = match clip.kind {
+        ClipKind::Notes { .. } => None,
+        _ => cleaned_source(original, clip),
+    };
+    let audio = cleaned.as_ref().unwrap_or(original);
     match &clip.kind {
         ClipKind::Audio => {
             let mut buf = region(audio, clip.source_start, clip.source_len);
@@ -422,6 +451,50 @@ mod tests {
         c.reverse = true;
         let r = render_clip(&song, &c, &bank);
         assert_eq!(r[0], 479.0 / 4000.0);
+    }
+
+    #[test]
+    fn clean_turns_down_hiss_in_the_rendered_clip() {
+        // Half a second of hiss, then a tone over it.
+        let mut state = 9u64;
+        let audio: Vec<f32> = (0..96_000)
+            .map(|i| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let n = ((state >> 33) as f32 / (1u64 << 31) as f32 * 2.0 - 1.0) * 0.02;
+                let t = if i >= 24_000 {
+                    0.3 * (std::f32::consts::TAU * 330.0 * i as f32 / 48_000.0).sin()
+                } else {
+                    0.0
+                };
+                n + t
+            })
+            .collect();
+        let mut bank = SourceBank::default();
+        bank.insert("take", Arc::new(AudioBuffer::new(audio, PROJECT_RATE)));
+        let mut song = Song::new("t");
+        let mut c = Clip::audio(1, "c", "take", 0.0, 2.0, 0.0);
+        let dry = render_clip(&song, &c, &bank);
+        c.clean = 0.8;
+        let wet = render_clip(&song, &c, &bank);
+        assert_eq!(dry.len(), wet.len());
+        let floor = |x: &[f32]| crate::dsp::amp_to_db(crate::dsp::rms(&x[2_000..22_000]));
+        assert!(floor(&dry) - floor(&wet) >= 12.0);
+        // A hand-picked noise region does the same.
+        c.noise_region = Some([0.05, 0.4]);
+        let picked = render_clip(&song, &c, &bank);
+        assert!(floor(&dry) - floor(&picked) >= 12.0);
+        // Notes clips ignore it; sliced clips use the cleaned audio.
+        song.bpm = 120.0;
+        c.kind = ClipKind::Sliced {
+            length_beats: 4.0,
+            slices: vec![Slice::new(0.0, 2.0, 0.0)],
+            grid: 0.5,
+            strength: 1.0,
+        };
+        let sliced = render_clip(&song, &c, &bank);
+        assert!(floor(&dry) - floor(&sliced) >= 12.0);
     }
 
     #[test]

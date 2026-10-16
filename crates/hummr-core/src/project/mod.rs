@@ -363,6 +363,13 @@ pub struct Clip {
     pub repeat: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub stretch: Stretch,
+    /// Noise cleanup strength (0 = off, 1 = strongest); see `denoise`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub clean: f64,
+    /// Where the background noise was learned from (source seconds:
+    /// start, length); `None` = the quietest half second of the clip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise_region: Option<[f64; 2]>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub fx: FxChain,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -388,6 +395,8 @@ impl Clip {
             reverse: false,
             repeat: 1,
             stretch: Stretch::Keep,
+            clean: 0.0,
+            noise_region: None,
             fx: FxChain::default(),
             kind: ClipKind::Audio,
         }

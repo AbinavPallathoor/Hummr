@@ -36,3 +36,7 @@ One line each: decision — alternatives — why.
 - Echo time is in beats (default 3/4) so it follows the song tempo — milliseconds — echoes on the beat are what people want by default.
 - Effect tails are rendered past the clip end and trimmed once below −90 dB — cut at the clip end — reverb/echo tails cut off audibly.
 - Master bus ends in a 5 ms look-ahead limiter at −1 dBFS, transparent below the ceiling — a clipper — no added distortion on loud mixes; exported files never clip.
+- Noise cleanup is power spectral subtraction (43 ms Hann frames, 75% overlap) with over-subtraction 1+3·strength, a gain floor of −40·strength dB, and gains smoothed over 3 bands and ~2 frames — Wiener filter / RNNoise-style model — no model files, deterministic, and enough for steady hiss and hum, which is what the brief asks for.
+- The noise is learned from a user-picked region, or else the quietest half second of the clip — per-band minimum statistics — minimum statistics treat a steady sung note as noise; takes almost always start with a moment of silence.
+- Cleanup is a clip setting (`clean`, `noise_region`) applied at render time to a copy of the source — rewrite the source file — keeps editing non-destructive and the strength adjustable.
+- Added `hummr clean in.wav [--strength] [--noise START:LEN]` — TUI only — gives a scriptable, testable way to use cleanup before the timeline exists.

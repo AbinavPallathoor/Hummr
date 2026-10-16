@@ -15,6 +15,7 @@
 pub mod audio;
 pub mod beat;
 pub mod buffer;
+pub mod denoise;
 pub mod dsp;
 pub mod error;
 pub mod fuzzy;

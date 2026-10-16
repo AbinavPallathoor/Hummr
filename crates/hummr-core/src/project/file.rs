@@ -337,6 +337,8 @@ mod tests {
         a.gain_db = -3.5;
         a.repeat = 2;
         a.stretch = Stretch::Follow { bpm: 96.0 };
+        a.clean = 0.8;
+        a.noise_region = Some([0.0, 0.5]);
         a.fx = FxChain {
             preset: Some("Lo-fi".into()),
             amount: 0.6,
