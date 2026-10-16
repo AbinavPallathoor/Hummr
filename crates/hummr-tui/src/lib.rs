@@ -86,6 +86,59 @@ fn run_loop(terminal: &mut DefaultTerminal, app: &mut App) -> anyhow::Result<()>
     }
 }
 
+/// Opens a `.hummr` project on the timeline and runs until the user quits.
+pub fn run_project(path: &std::path::Path, opts: Options) -> anyhow::Result<()> {
+    let project = hummr_core::project::Project::open(path)?;
+    run_studio(project, opts)
+}
+
+/// Runs the timeline on `project`.
+pub fn run_studio(project: hummr_core::project::Project, opts: Options) -> anyhow::Result<()> {
+    let sf = hummr_core::soundfont::init();
+    let mut s = studio::Studio::new(
+        project,
+        &studio::StudioOptions {
+            animations: opts.animations,
+            mouse: opts.mouse,
+            audio: true,
+        },
+    );
+    if s.message.is_none() && hummr_core::soundfont::configured_path().is_some() {
+        s.say(sf, app::Level::Info);
+    }
+    let mut terminal = ratatui::init();
+    let result = studio_loop(&mut terminal, &mut s);
+    ratatui::restore();
+    result
+}
+
+fn studio_loop(terminal: &mut DefaultTerminal, s: &mut studio::Studio) -> anyhow::Result<()> {
+    let mut last = Instant::now();
+    loop {
+        let frame_start = Instant::now();
+        let dt = frame_start - last;
+        last = frame_start;
+        s.tick(dt);
+        terminal.draw(|f| studio::draw::draw(f, s))?;
+        if s.quit {
+            return Ok(());
+        }
+        let budget = if s.is_live() { FRAME } else { IDLE };
+        let mut timeout = budget.saturating_sub(frame_start.elapsed());
+        while event::poll(timeout)? {
+            if let Event::Key(k) = event::read()? {
+                if k.kind == KeyEventKind::Press {
+                    studio::keys::on_key(s, k);
+                }
+            }
+            if s.quit {
+                break;
+            }
+            timeout = Duration::ZERO;
+        }
+    }
+}
+
 /// Renders the editor with `file` loaded into a plain-text screen of
 /// `width`×`height`, after `keys` are typed. For snapshots and debugging.
 #[doc(hidden)]

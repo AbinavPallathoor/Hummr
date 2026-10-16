@@ -55,7 +55,8 @@ enum Command {
 
 #[derive(Args, Clone, Default)]
 struct EditArgs {
-    /// A .wav take or .mid file to open.
+    /// A .hummr project (opens the timeline), or a .wav take or .mid file
+    /// (opens the notes editor).
     file: Option<PathBuf>,
 
     /// Turn off animations (fades and sweeps).
@@ -69,11 +70,16 @@ struct EditArgs {
 
 fn edit(args: EditArgs) -> anyhow::Result<()> {
     let animations = !args.no_anim && std::env::var_os("HUMMR_NO_ANIM").is_none();
-    hummr_tui::run(hummr_tui::Options {
-        file: args.file,
+    let opts = hummr_tui::Options {
+        file: args.file.clone(),
         animations,
         mouse: args.mouse,
-    })
+    };
+    match &args.file {
+        // Projects open on the timeline; .wav and .mid in the notes editor.
+        Some(f) if f.extension().is_some_and(|e| e == "hummr") => hummr_tui::run_project(f, opts),
+        _ => hummr_tui::run(opts),
+    }
 }
 
 fn main() -> ExitCode {

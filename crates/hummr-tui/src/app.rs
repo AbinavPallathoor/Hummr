@@ -1129,6 +1129,7 @@ impl App {
                     gain: db_to_amp(s.gain_db),
                     pan: s.pan,
                     muted: !self.strip_audible(s),
+                    right: None,
                 }
             })
             .collect();
@@ -1137,6 +1138,7 @@ impl App {
             gain: db_to_amp(self.voice.gain_db),
             pan: self.voice.pan,
             muted: !self.strip_audible(&self.voice),
+            right: None,
         });
         out
     }

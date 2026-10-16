@@ -250,13 +250,30 @@ where
         .map_err(|e| map_err("could not open the microphone", e))
 }
 
-/// One mono track in the playback mix.
+/// One track in the playback mix: mono (`right` is `None`, `pan` places
+/// it) or stereo (`samples` is the left channel, `pan` is a balance).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayTrack {
     pub samples: Vec<f32>,
     pub gain: f32,
     pub pan: f32,
     pub muted: bool,
+    pub right: Option<Vec<f32>>,
+}
+
+impl PlayTrack {
+    /// Left/right gains: constant-power pan for mono, balance for stereo.
+    fn lr_gains(&self) -> (f32, f32) {
+        if self.right.is_some() {
+            let p = self.pan.clamp(-1.0, 1.0);
+            (
+                if p > 0.0 { 1.0 - p } else { 1.0 },
+                if p < 0.0 { 1.0 + p } else { 1.0 },
+            )
+        } else {
+            pan_gains(self.pan)
+        }
+    }
 }
 
 /// A click track generated on the fly. Clicks are short noise bursts rather
@@ -381,6 +398,32 @@ impl Player {
         });
     }
 
+    /// Replaces one track (adding silent ones before it if needed),
+    /// leaving the others playing undisturbed.
+    pub fn replace_track(&self, index: usize, track: PlayTrack) {
+        self.with_mix(|m| {
+            while m.tracks.len() <= index {
+                m.tracks.push(PlayTrack {
+                    samples: Vec::new(),
+                    gain: 0.0,
+                    pan: 0.0,
+                    muted: true,
+                    right: None,
+                });
+            }
+            m.tracks[index] = track;
+            m.peaks.resize(m.tracks.len(), 0.0);
+        });
+    }
+
+    /// Drops tracks from `len` on.
+    pub fn truncate_tracks(&self, len: usize) {
+        self.with_mix(|m| {
+            m.tracks.truncate(len);
+            m.peaks.truncate(len);
+        });
+    }
+
     /// Updates gain/pan/mute without touching the audio.
     pub fn set_track_params(&self, index: usize, gain: f32, pan: f32, muted: bool) {
         self.with_mix(|m| {
@@ -474,7 +517,7 @@ where
                     .max()
                     .unwrap_or(0);
                 let endless = mix.metronome.is_some();
-                let pans: Vec<(f32, f32)> = mix.tracks.iter().map(|t| pan_gains(t.pan)).collect();
+                let pans: Vec<(f32, f32)> = mix.tracks.iter().map(PlayTrack::lr_gains).collect();
                 for frame in out.chunks_mut(channels) {
                     let (mut l, mut r) = (0.0f32, 0.0f32);
                     if let Some(m) = mix.metronome {
@@ -493,9 +536,13 @@ where
                                 continue;
                             }
                             let x = t.samples.get(mix.pos).copied().unwrap_or(0.0) * t.gain;
-                            mix.peaks[i] = mix.peaks[i].max(x.abs());
+                            let y = match &t.right {
+                                Some(right) => right.get(mix.pos).copied().unwrap_or(0.0) * t.gain,
+                                None => x,
+                            };
+                            mix.peaks[i] = mix.peaks[i].max(x.abs()).max(y.abs());
                             l += x * pans[i].0;
-                            r += x * pans[i].1;
+                            r += y * pans[i].1;
                         }
                         mix.pos += 1;
                     }
@@ -547,6 +594,24 @@ mod tests {
         // Starting on beat 3 of a bar: the accent comes two beats in.
         let m = m.starting_at_beat(2.0);
         assert!(m.sample(0, 1.0) < m.sample(2 * 24_000, 1.0));
+    }
+
+    #[test]
+    fn stereo_tracks_use_balance_and_mono_tracks_pan() {
+        let mut t = PlayTrack {
+            samples: vec![1.0],
+            gain: 1.0,
+            pan: 0.0,
+            muted: false,
+            right: Some(vec![1.0]),
+        };
+        assert_eq!(t.lr_gains(), (1.0, 1.0));
+        t.pan = -0.5;
+        assert_eq!(t.lr_gains(), (1.0, 0.5));
+        t.right = None;
+        t.pan = 0.0;
+        let (l, r) = t.lr_gains();
+        assert!((l - r).abs() < 1e-6 && l < 1.0);
     }
 
     #[test]

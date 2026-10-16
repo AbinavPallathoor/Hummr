@@ -7,6 +7,8 @@
 //! solo, then the master effects and a limiter.
 
 use super::{Clip, ClipKind, Song, SourceBank, Stretch, Voice};
+use std::sync::Arc;
+
 use crate::AudioBuffer;
 use crate::dsp::db_to_amp;
 use crate::fx;
@@ -152,8 +154,6 @@ fn time_ratio(song: &Song, clip: &Clip) -> f64 {
     follow / clip.speed.max(1e-3)
 }
 
-/// One repeat of a clip, mono, before fades, effects and gain. May run past
-/// the unit length (notes ring out).
 /// The source with the clip's region (plus a little either side, for
 /// slice crossfades) noise-cleaned, if the clip asks for it.
 pub(crate) fn cleaned_source(audio: &AudioBuffer, clip: &Clip) -> Option<AudioBuffer> {
@@ -178,6 +178,8 @@ pub(crate) fn cleaned_source(audio: &AudioBuffer, clip: &Clip) -> Option<AudioBu
     Some(out)
 }
 
+/// One repeat of a clip, mono, before fades, effects and gain. May run past
+/// the unit length (notes ring out).
 fn render_unit(song: &Song, clip: &Clip, bank: &SourceBank) -> Vec<f32> {
     let sr = song.sample_rate;
     let empty = AudioBuffer::new(Vec::new(), sr);
@@ -265,16 +267,83 @@ pub fn render_clip(song: &Song, clip: &Clip, bank: &SourceBank) -> Vec<f32> {
     out
 }
 
+/// Rendered clips, reused while a clip's sound settings (everything except
+/// where it sits) and the tempo stay the same. Moving a clip or changing
+/// another one costs nothing.
+#[derive(Default)]
+pub struct ClipCache {
+    entries: Vec<(Clip, f64, Arc<Vec<f32>>)>,
+    used: Vec<bool>,
+}
+
+impl ClipCache {
+    /// What decides a clip's sound: everything but its id, name and place.
+    fn sound_of(clip: &Clip) -> Clip {
+        let mut c = clip.clone();
+        c.id = 0;
+        c.name.clear();
+        c.start_beat = 0.0;
+        c
+    }
+
+    /// The rendered clip, from the cache or freshly rendered.
+    pub fn get(&mut self, song: &Song, clip: &Clip, bank: &SourceBank) -> Arc<Vec<f32>> {
+        let key = Self::sound_of(clip);
+        if let Some(i) = self
+            .entries
+            .iter()
+            .position(|(c, bpm, _)| *bpm == song.bpm && *c == key)
+        {
+            self.used[i] = true;
+            return Arc::clone(&self.entries[i].2);
+        }
+        let audio = Arc::new(render_clip(song, clip, bank));
+        self.entries.push((key, song.bpm, Arc::clone(&audio)));
+        self.used.push(true);
+        audio
+    }
+
+    /// Drops everything not used since the last call.
+    pub fn sweep(&mut self) {
+        let mut keep = self.used.iter();
+        self.entries.retain(|_| *keep.next().unwrap_or(&false));
+        self.used = vec![false; self.entries.len()];
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.used.clear();
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
 /// Renders one track (all its clips, panned, then the track's effects).
 /// Volume, balance, mute and solo are left to the mix so the mixer can
 /// change them without re-rendering.
 pub fn render_track(song: &Song, track: usize, bank: &SourceBank) -> Stereo {
+    render_track_cached(song, track, bank, &mut ClipCache::default())
+}
+
+/// [`render_track`], reusing clips rendered before.
+pub fn render_track_cached(
+    song: &Song,
+    track: usize,
+    bank: &SourceBank,
+    cache: &mut ClipCache,
+) -> Stereo {
     let mut out = Stereo::default();
     let Some(t) = song.tracks.get(track) else {
         return out;
     };
     for clip in &t.clips {
-        let mono = render_clip(song, clip, bank);
+        let mono = cache.get(song, clip, bank);
         let (gl, gr) = pan_gains(clip.pan as f32);
         out.add_mono(&mono, clip_offset(song, clip), gl, gr);
     }
@@ -396,6 +465,32 @@ mod tests {
                 mix.right[i]
             );
         }
+    }
+
+    #[test]
+    fn clip_cache_reuses_moved_clips_and_matches_a_fresh_render() {
+        let bank = bank();
+        let mut song = Song::new("t");
+        song.bpm = 120.0;
+        let t = song.add_track("A");
+        let c = Clip::audio(song.alloc_id(), "r", "ramp", 0.0, 0.5, 0.0);
+        song.insert_clip(t, c);
+        let mut cache = ClipCache::default();
+        let a = render_track_cached(&song, t, &bank, &mut cache);
+        assert_eq!(cache.len(), 1);
+        let id = song.tracks[t].clips[0].id;
+        song.move_clip(id, t, 2.0);
+        let b = render_track_cached(&song, t, &bank, &mut cache);
+        assert_eq!(cache.len(), 1, "moving reuses the render");
+        assert_eq!(b, render_track(&song, t, &bank));
+        assert_ne!(a, b);
+        song.clip_mut(id).unwrap().gain_db = -6.0;
+        render_track_cached(&song, t, &bank, &mut cache);
+        assert_eq!(cache.len(), 2);
+        cache.sweep();
+        render_track_cached(&song, t, &bank, &mut cache);
+        cache.sweep();
+        assert_eq!(cache.len(), 1, "the old render is dropped");
     }
 
     #[test]

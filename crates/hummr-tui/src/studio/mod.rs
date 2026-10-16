@@ -2,9 +2,12 @@
 //! beat grid. This is the default screen; the old piano-roll editor is the
 //! notes editor, opened for notes clips.
 
+pub mod command;
 pub mod draw;
+pub mod engine;
 #[doc(hidden)]
 pub mod fixture;
+pub mod keys;
 pub mod peaks;
 
 use std::time::Duration;
@@ -92,6 +95,14 @@ pub struct Studio {
     pub message: Option<(String, Level)>,
     pub animations: bool,
     pub peaks: peaks::PeakCache,
+    pub engine: engine::Engine,
+    /// Bumped on every change to the song, so the engine knows to sync.
+    pub version: u64,
+    synced: Option<u64>,
+    /// The song as last saved (to warn about unsaved changes).
+    saved: Song,
+    /// Whether `q` was already pressed once with unsaved changes.
+    quit_armed: bool,
     pub quit: bool,
     /// Seconds since start, for blinking and toasts.
     pub clock: f64,
@@ -102,6 +113,8 @@ pub struct Studio {
 pub struct StudioOptions {
     pub animations: bool,
     pub mouse: bool,
+    /// Open the sound device (off in tests).
+    pub audio: bool,
 }
 
 impl Studio {
@@ -121,9 +134,22 @@ impl Studio {
             message: None,
             animations: opts.animations,
             peaks: peaks::PeakCache::default(),
+            engine: if opts.audio {
+                engine::Engine::open()
+            } else {
+                engine::Engine::headless()
+            },
+            version: 0,
+            synced: None,
+            saved: Song::new(""),
+            quit_armed: false,
             quit: false,
             clock: 0.0,
         };
+        s.saved = s.project.song.clone();
+        if let Some(p) = s.engine.problem.clone() {
+            s.say(p, Level::Warn);
+        }
         let warnings = std::mem::take(&mut s.project.warnings);
         if let Some(w) = warnings.first() {
             s.say(w.clone(), Level::Warn);
@@ -139,8 +165,155 @@ impl Studio {
         self.message = Some((text.into(), level));
     }
 
+    /// Per-frame work: sync and poll the engine, follow the playhead.
     pub fn tick(&mut self, dt: Duration) {
         self.clock += dt.as_secs_f64();
+        if self.synced != Some(self.version) {
+            self.engine.sync(&self.project.song, &self.project.sources);
+            self.synced = Some(self.version);
+            let ids: Vec<u64> = self
+                .project
+                .song
+                .tracks
+                .iter()
+                .flat_map(|t| t.clips.iter().map(|c| c.id))
+                .collect();
+            self.peaks.retain(&ids);
+        }
+        for (clip, bpm, audio) in self.engine.poll(&self.project.song) {
+            self.peaks.rendered.insert(clip.id, (clip, bpm, audio));
+        }
+        self.engine.advance(dt.as_secs_f64());
+        if self.playing {
+            if self.engine.is_playing() {
+                self.playhead = self.engine.position_beats(&self.project.song);
+            } else {
+                self.playing = false;
+            }
+        }
+    }
+
+    /// Whether the screen needs redrawing every frame.
+    pub fn is_live(&self) -> bool {
+        self.playing || !self.engine.is_ready()
+    }
+
+    /// Changes the song as one undoable step called `label`.
+    pub fn edit<R>(&mut self, label: &str, f: impl FnOnce(&mut Song) -> R) -> R {
+        let before = self.project.song.clone();
+        let r = f(&mut self.project.song);
+        if self.project.song != before {
+            self.history.record(label, before);
+            self.touch();
+        }
+        r
+    }
+
+    /// Marks the song changed (for the engine and the unsaved warning).
+    pub fn touch(&mut self) {
+        self.version += 1;
+        self.quit_armed = false;
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.project.song != self.saved || !self.project.sources_saved()
+    }
+
+    pub fn mark_saved(&mut self) {
+        self.saved = self.project.song.clone();
+    }
+
+    /// Quits, or warns once if there are unsaved changes.
+    pub fn request_quit(&mut self, force: bool) {
+        if force || !self.is_dirty() || self.quit_armed {
+            self.engine.stop();
+            self.quit = true;
+        } else {
+            self.quit_armed = true;
+            self.say(
+                "You have unsaved changes. Press q again to quit without saving, or :w to save.",
+                Level::Warn,
+            );
+        }
+    }
+
+    // ---- moving around ------------------------------------------------------
+
+    /// Moves the playhead to `beat` (not before 0), seeking if playing.
+    pub fn seek(&mut self, beat: f64) {
+        self.playhead = beat.max(0.0);
+        if self.playing {
+            let song = self.project.song.clone();
+            self.engine.play(&song, self.playhead);
+        }
+    }
+
+    pub fn toggle_play(&mut self) {
+        if self.playing {
+            self.engine.stop();
+            self.playing = false;
+        } else if self.song().tracks.iter().all(|t| t.clips.is_empty()) {
+            self.say(
+                "Nothing to play yet. Press r to record, or i to import a sample.",
+                Level::Info,
+            );
+        } else {
+            let song = self.project.song.clone();
+            if self.playhead >= song.end_beats() - 1e-9 {
+                self.playhead = 0.0;
+            }
+            self.engine.play(&song, self.playhead);
+            self.playing = true;
+            if !self.engine.is_ready() {
+                self.say("Preparing the sound…", Level::Info);
+            }
+        }
+    }
+
+    pub fn move_row(&mut self, delta: i64) {
+        let n = self.rows().len() as i64;
+        if n == 0 {
+            return;
+        }
+        self.row = (self.row as i64 + delta).clamp(0, n - 1) as usize;
+    }
+
+    /// Jumps to the previous (`-1`) or next (`+1`) bar line.
+    pub fn bar_jump(&mut self, dir: i64) {
+        let bar = self.song().bar_beats();
+        let at = self.playhead / bar;
+        let target = if dir < 0 {
+            let f = at.floor();
+            if (at - f).abs() < 1e-9 { f - 1.0 } else { f }
+        } else {
+            at.floor() + 1.0
+        };
+        self.seek(target * bar);
+    }
+
+    /// Zooms in (`+1`) or out (`-1`) around the playhead.
+    pub fn zoom(&mut self, dir: i64) {
+        let i = ZOOMS
+            .iter()
+            .position(|&z| z >= self.view.cols_per_beat - 1e-9)
+            .unwrap_or(ZOOMS.len() - 1) as i64;
+        let j = (i + dir).clamp(0, ZOOMS.len() as i64 - 1) as usize;
+        let col = self.view.beat_to_col(self.playhead);
+        self.view.cols_per_beat = ZOOMS[j];
+        self.view.start_beat = (self.playhead - col / self.view.cols_per_beat).max(0.0);
+    }
+
+    /// Zooms so the whole song fits.
+    pub fn fit(&mut self) {
+        let end = self.song().end_beats().max(self.song().bar_beats());
+        let cols = f64::from(self.lane_cols.max(8)) - 1.0;
+        self.view.cols_per_beat = ZOOMS
+            .iter()
+            .rev()
+            .copied()
+            .find(|z| end * z <= cols)
+            .unwrap_or(ZOOMS[0]);
+        self.view.start_beat = 0.0;
     }
 
     /// All visible rows, top to bottom: every lane of every track.

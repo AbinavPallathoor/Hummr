@@ -56,3 +56,9 @@ One line each: decision — alternatives — why.
 - Waveform glyphs come from the source audio (audio clips map columns back to the source region, sliced clips to their slices, notes clips draw their notes) and switch to the rendered sound once the playback engine has it — always render first — boxes appear instantly and snapshot tests stay deterministic.
 - Waveform height is a dB scale (−48 dB → ▁, 0 dB → █) — normalise each clip to its own peak — quiet takes should look quiet.
 - Minimum terminal is 80×24 with a plain "terminal too small" message below that — the old editor's 64×18 — the brief's timeline needs 80 columns for a header column plus a useful number of beats.
+- Playback renders each track to stereo on one background thread and swaps only that track into the existing `Player` (`replace_track`); volume, pan, mute and solo are live player parameters — re-render the whole mix on every edit — editing never interrupts playback, and only changed tracks are rendered.
+- Inside a track, rendered clips are cached by their sound settings (everything except id, name and position) and tempo (`ClipCache`) — cache whole tracks only — moving or duplicating a clip costs no DSP.
+- `PlayTrack` gained an optional right channel (stereo tracks pan as a balance) — a second player for stereo — the old editor's mono tracks keep working unchanged.
+- Playback uses the player's soft clip; the −1 dBFS look-ahead limiter runs on exports only — limiter in the audio callback — the callback stays allocation- and lock-light; documented in LIMITS.md.
+- `hummr edit x.hummr` opens the timeline; `.wav` and `.mid` keep opening the old editor — one entry point that guesses — keeps `hummr edit song.mid` exactly as before.
+- Quitting with unsaved changes warns once; pressing q again quits — a yes/no dialog — matches the old editor's `:q` behaviour with fewer keystrokes.
