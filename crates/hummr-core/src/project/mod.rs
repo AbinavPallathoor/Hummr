@@ -12,6 +12,7 @@
 pub mod export;
 pub mod file;
 pub mod history;
+pub mod ops;
 pub mod render;
 
 use std::collections::HashMap;
@@ -258,6 +259,26 @@ pub struct Slice {
     pub len: f64,
     /// Where it plays, in beats from the clip start.
     pub beat: f64,
+    /// Seconds from `src` to the attack of the hit in this slice (none for
+    /// a lead-in before the first hit). Snapping lines the attack up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit: Option<f64>,
+    /// Where the slice was before snapping (beats from the clip start), so
+    /// the snap strength can be changed later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural: Option<f64>,
+}
+
+impl Slice {
+    pub fn new(src: f64, len: f64, beat: f64) -> Self {
+        Self {
+            src,
+            len,
+            beat,
+            hit: None,
+            natural: None,
+        }
+    }
 }
 
 /// A note in a notes clip, in beats from the clip start.
@@ -294,6 +315,12 @@ pub enum ClipKind {
     Sliced {
         length_beats: f64,
         slices: Vec<Slice>,
+        /// Snap grid in beats (0: no snapping).
+        #[serde(default)]
+        grid: f64,
+        /// How far hits move towards the grid, 0..=1.
+        #[serde(default)]
+        strength: f64,
     },
     /// Notes rendered by a voice. The source region is kept so the clip can
     /// be re-transcribed.
@@ -648,6 +675,8 @@ impl Song {
             ClipKind::Sliced {
                 length_beats,
                 slices,
+                grid,
+                strength,
             } => {
                 let spb = 60.0 / bpm;
                 let mut ls = Vec::new();
@@ -661,16 +690,21 @@ impl Song {
                     } else {
                         let mut s = *s;
                         s.beat -= rel;
+                        s.natural = s.natural.map(|n| n - rel);
                         rs.push(s);
                     }
                 }
                 left.kind = ClipKind::Sliced {
                     length_beats: rel,
                     slices: ls,
+                    grid: *grid,
+                    strength: *strength,
                 };
                 right.kind = ClipKind::Sliced {
                     length_beats: length_beats - rel,
                     slices: rs,
+                    grid: *grid,
+                    strength: *strength,
                 };
                 let cut = rel * spb;
                 left.source_len = cut.min(clip.source_len);

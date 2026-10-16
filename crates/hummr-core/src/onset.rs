@@ -229,7 +229,7 @@ pub fn pick_onsets(samples: &[f32], odf: &Odf, sensitivity: f32) -> Vec<Onset> {
 /// under a hat) is not mistaken for an attack.
 pub fn refine_attack(samples: &[f32], sample_rate: u32, t: f64) -> f64 {
     let sr = f64::from(sample_rate);
-    let from = ((t - 0.025) * sr).max(0.0) as usize;
+    let from = ((t - 0.05) * sr).max(0.0) as usize;
     let to = (((t + 0.02) * sr) as usize).min(samples.len());
     if to <= from + 64 {
         return t;
@@ -265,11 +265,25 @@ fn attack_index(x: &[f32], w: usize) -> Option<usize> {
         return None;
     }
     let thr = floor + 0.3 * (peak - floor);
+    // Walk back from the peak until the envelope has stayed under the
+    // threshold for three blocks in a row: noisy sounds (snares) dip
+    // briefly inside the hit, which must not count as its start.
     let mut k = peak_i;
-    while k > 0 && env[k - 1] >= thr {
+    let mut quiet = 0;
+    let mut start = peak_i;
+    while k > 0 {
         k -= 1;
+        if env[k] < thr {
+            quiet += 1;
+            if quiet == 3 {
+                break;
+            }
+        } else {
+            quiet = 0;
+            start = k;
+        }
     }
-    Some(k * w)
+    Some(start * w)
 }
 
 #[cfg(test)]

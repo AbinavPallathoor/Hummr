@@ -191,6 +191,50 @@ pub fn estimate(samples: &[f32], sample_rate: u32) -> BeatEstimate {
     estimate_from(&odf, onsets, 4)
 }
 
+/// The beat phase (seconds, `0 ≤ phase < 60/bpm`) of a recording whose
+/// tempo is already known, e.g. from the count-in or the command line.
+pub fn phase_for_tempo(samples: &[f32], sample_rate: u32, bpm: f64) -> f64 {
+    let odf = onset_strength(samples, sample_rate);
+    let onsets = pick_onsets(samples, &odf, 0.5);
+    let fr = odf.frame_rate();
+    let period = 60.0 / bpm;
+    if odf.is_empty() {
+        return 0.0;
+    }
+    let curve = smooth(&odf.body, 0.008 * fr);
+    let frames = period * fr;
+    let mut best = (f64::NEG_INFINITY, 0.0);
+    let mut phi = 0.0;
+    while phi < frames {
+        let mut s = 0.0;
+        let mut k = 0.0;
+        while phi + k * frames < curve.len() as f64 - 1.0 {
+            s += interp32(&curve, phi + k * frames);
+            k += 1.0;
+        }
+        if s > best.0 {
+            best = (s, phi);
+        }
+        phi += 0.5;
+    }
+    let mut phase = odf.time_of(best.1);
+    // Average the offsets of the hits that sit near beats.
+    let (mut sw, mut sd) = (0.0, 0.0);
+    for o in &onsets {
+        let k = ((o.time - phase) / period).round();
+        let d = o.time - (phase + k * period);
+        if d.abs() < 0.25 * period.min(0.25) {
+            let w = f64::from(o.strength).powi(2);
+            sw += w;
+            sd += w * d;
+        }
+    }
+    if sw > 0.0 {
+        phase += sd / sw;
+    }
+    phase.rem_euclid(period)
+}
+
 /// Estimates tempo from an onset-strength curve and its picked onsets.
 /// `beats_per_bar` is used to guess where beat 1 falls.
 pub fn estimate_from(odf: &Odf, onsets: Vec<Onset>, beats_per_bar: u32) -> BeatEstimate {
@@ -562,6 +606,16 @@ mod tests {
         let silence = estimate(&vec![0.0; 48_000 * 3], 48_000);
         assert_eq!(silence.confidence, 0.0);
         assert_eq!(silence.describe(), "no steady beat found");
+    }
+
+    #[test]
+    fn phase_for_a_known_tempo() {
+        let (audio, hits) = drum_loop(96.0, 4, 1, 0.37, 0.01, 8, 48_000);
+        let p = phase_for_tempo(&audio, 48_000, 96.0);
+        let period = 60.0 / 96.0;
+        let truth = (hits[0].time - hits[0].beat * period).rem_euclid(period);
+        let d = (p - truth).rem_euclid(period);
+        assert!(d.min(period - d) < 0.01, "phase {p} vs {truth}");
     }
 
     #[test]

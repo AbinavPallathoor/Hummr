@@ -352,18 +352,9 @@ mod tests {
         let mut b = Clip::audio(11, "chop", "s1", 0.0, 1.0, 4.0);
         b.kind = ClipKind::Sliced {
             length_beats: 2.0,
-            slices: vec![
-                Slice {
-                    src: 0.0,
-                    len: 0.3,
-                    beat: 0.0,
-                },
-                Slice {
-                    src: 0.3,
-                    len: 0.7,
-                    beat: 0.5,
-                },
-            ],
+            slices: vec![Slice::new(0.0, 0.3, 0.0), Slice::new(0.3, 0.7, 0.5)],
+            grid: 0.0,
+            strength: 0.0,
         };
         s.tracks[t].clips.push(b);
         let t2 = s.add_track("Lead");

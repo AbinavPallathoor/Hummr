@@ -3,6 +3,7 @@
 mod detect;
 mod project;
 mod record;
+mod snap;
 mod transcribe;
 
 use std::path::PathBuf;
@@ -45,6 +46,8 @@ enum Command {
     Export(project::ExportArgs),
     /// Find the tempo, beat and hits of a recording.
     Detect(detect::Args),
+    /// Move the hits of a recording onto a beat grid.
+    Snap(snap::Args),
 }
 
 #[derive(Args, Clone, Default)]
@@ -80,6 +83,7 @@ fn main() -> ExitCode {
         Some(Command::New(args)) => project::new(args),
         Some(Command::Export(args)) => project::export(args),
         Some(Command::Detect(args)) => detect::run(args),
+        Some(Command::Snap(args)) => snap::run(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

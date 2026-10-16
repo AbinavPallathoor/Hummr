@@ -103,3 +103,62 @@ fn detect_reports_tempo_in_plain_words() {
     assert!(out.contains("no steady beat"), "{out}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn snap_moves_hits_onto_the_grid() {
+    let dir = tmp_dir("snap");
+    let (audio, _) = hummr_core::synthetic::drum_groove(96.0, 2, 0, 0.3, 0.015, 3, 48_000);
+    wav::write_mono(
+        &dir.join("take.wav"),
+        &AudioBuffer::new(audio.clone(), 48_000),
+        wav::WavFormat::Float32,
+    )
+    .unwrap();
+    let (ok, out, err) = hummr(
+        &dir,
+        &[
+            "snap",
+            "take.wav",
+            "--bpm",
+            "96",
+            "--strength",
+            "1",
+            "--grid",
+            "1/8",
+        ],
+    );
+    assert!(ok, "{err}");
+    assert!(out.contains("take-snapped.wav"), "{out}");
+    let snapped = wav::read_mono(&dir.join("take-snapped.wav")).unwrap();
+    assert_eq!(snapped.samples.len(), audio.len());
+    let phase = hummr_core::beat::phase_for_tempo(&audio, 48_000, 96.0);
+    let step = 60.0 / 96.0 / 2.0;
+    for o in hummr_core::onset::detect_onsets(&snapped.samples, 48_000) {
+        let d = ((o.time - phase) / step).rem_euclid(1.0);
+        assert!(d.min(1.0 - d) * step < 0.005, "hit at {}", o.time);
+    }
+    // Strength 0 writes the take back unchanged.
+    let (ok, _, err) = hummr(
+        &dir,
+        &[
+            "snap",
+            "take.wav",
+            "--bpm",
+            "96",
+            "--strength",
+            "0",
+            "-o",
+            "same.wav",
+        ],
+    );
+    assert!(ok, "{err}");
+    let same = wav::read_mono(&dir.join("same.wav")).unwrap();
+    let worst = same
+        .samples
+        .iter()
+        .zip(&audio)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    assert!(worst < 1e-3, "strength 0 changed the take by {worst}");
+    std::fs::remove_dir_all(&dir).ok();
+}

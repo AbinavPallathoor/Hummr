@@ -307,15 +307,56 @@ pub fn drum_loop(
     seed: u64,
     sample_rate: u32,
 ) -> (Vec<f32>, Vec<LoopHit>) {
+    render_loop(bpm, bars, which, offset, jitter, false, seed, sample_rate)
+}
+
+/// Like [`drum_loop`], but drums meant for the same moment move together,
+/// the way one beatboxed sound covers a kick and a hat.
+pub fn drum_groove(
+    bpm: f64,
+    bars: usize,
+    which: usize,
+    offset: f64,
+    jitter: f64,
+    seed: u64,
+    sample_rate: u32,
+) -> (Vec<f32>, Vec<LoopHit>) {
+    render_loop(bpm, bars, which, offset, jitter, true, seed, sample_rate)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_loop(
+    bpm: f64,
+    bars: usize,
+    which: usize,
+    offset: f64,
+    jitter: f64,
+    per_slot: bool,
+    seed: u64,
+    sample_rate: u32,
+) -> (Vec<f32>, Vec<LoopHit>) {
     use crate::kit::{Sound, drum_hit};
     let mut rng = Rng::new(seed);
     let spb = 60.0 / bpm;
     let sr = f64::from(sample_rate);
     let mut hits = Vec::new();
+    let mut slot_jitter: Vec<(f64, f64)> = Vec::new();
     for bar in 0..bars {
         for &(b, drum) in &pattern(which) {
             let beat = bar as f64 * 4.0 + b;
-            let t = offset + beat * spb + f64::from(rng.bipolar()) * jitter;
+            let j = if per_slot {
+                match slot_jitter.iter().find(|(sb, _)| *sb == beat) {
+                    Some(&(_, j)) => j,
+                    None => {
+                        let j = f64::from(rng.bipolar()) * jitter;
+                        slot_jitter.push((beat, j));
+                        j
+                    }
+                }
+            } else {
+                f64::from(rng.bipolar()) * jitter
+            };
+            let t = offset + beat * spb + j;
             hits.push(LoopHit {
                 time: t.max(0.0),
                 beat,

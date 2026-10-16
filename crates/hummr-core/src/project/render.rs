@@ -435,22 +435,12 @@ mod tests {
         sliced.kind = ClipKind::Sliced {
             length_beats: 2.0,
             slices: vec![
-                Slice {
-                    src: 0.0,
-                    len: 0.3,
-                    beat: 0.0,
-                },
-                Slice {
-                    src: 0.3,
-                    len: 0.45,
-                    beat: 0.6,
-                },
-                Slice {
-                    src: 0.75,
-                    len: 0.25,
-                    beat: 1.5,
-                },
+                Slice::new(0.0, 0.3, 0.0),
+                Slice::new(0.3, 0.45, 0.6),
+                Slice::new(0.75, 0.25, 1.5),
             ],
+            grid: 0.0,
+            strength: 0.0,
         };
         song.tracks[t].clips.push(audio.clone());
         let a = render_clip(&song, &audio, &bank);
