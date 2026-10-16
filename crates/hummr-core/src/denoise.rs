@@ -3,7 +3,7 @@
 //! Works on *steady* background noise: hiss, fan or air-conditioning rush,
 //! mains hum. It learns what the noise sounds like from a stretch of the
 //! recording where nobody is making a sound (picked by hand, or the
-//! quietest half second), then turns down every frequency band of every
+//! first 300 ms), then turns down every frequency band of every
 //! ~43 ms piece that is not clearly louder than that noise. It cannot remove
 //! voices, music, traffic or anything else that changes over time: those
 //! are louder than the learned noise, so they are treated as the sound you
@@ -23,8 +23,8 @@ pub const HELP: &str = "Clean noise turns down steady background hiss, fan noise
 It learns the noise from a quiet moment (no humming or singing). \
 It cannot remove voices, music or sudden sounds.";
 
-/// Length of the learned-noise window when picked automatically (seconds).
-pub const AUTO_NOISE_SECONDS: f64 = 0.5;
+/// Length of the default noise sample at the start of a clip (seconds).
+pub const DEFAULT_NOISE_SECONDS: f64 = 0.3;
 
 /// FFT length: about 43 ms, a power of two.
 fn frame_len(sample_rate: u32) -> usize {
@@ -91,36 +91,18 @@ pub fn learn(noise: &[f32], sample_rate: u32) -> NoiseProfile {
     NoiseProfile { power, frame: n }
 }
 
-/// The quietest `seconds`-long stretch of `samples` (by RMS), as a sample
-/// range. Steps by 50 ms. The whole input if it is shorter than that.
-pub fn quietest(samples: &[f32], sample_rate: u32, seconds: f64) -> std::ops::Range<usize> {
-    let len = (seconds * f64::from(sample_rate)) as usize;
-    if samples.len() <= len || len == 0 {
-        return 0..samples.len();
-    }
-    let step = (sample_rate as usize / 20).max(1);
-    // Prefix sums of squares make every window O(1).
-    let mut acc = Vec::with_capacity(samples.len() + 1);
-    acc.push(0.0f64);
-    for &s in samples {
-        acc.push(acc.last().copied().unwrap_or(0.0) + f64::from(s) * f64::from(s));
-    }
-    let mut best = (f64::INFINITY, 0usize);
-    let mut s = 0usize;
-    while s + len <= samples.len() {
-        let e = acc[s + len] - acc[s];
-        if e < best.0 {
-            best = (e, s);
-        }
-        s += step;
-    }
-    best.1..best.1 + len
+/// Where the noise is learned from when no region is picked: the first
+/// 300 ms (or all of a shorter input).
+pub fn default_region(len: usize, sample_rate: u32) -> std::ops::Range<usize> {
+    0..len.min((DEFAULT_NOISE_SECONDS * f64::from(sample_rate)) as usize)
 }
 
-/// Learns the noise from the quietest half second of `samples`.
-pub fn learn_auto(samples: &[f32], sample_rate: u32) -> NoiseProfile {
-    let r = quietest(samples, sample_rate, AUTO_NOISE_SECONDS);
-    learn(&samples[r], sample_rate)
+/// Learns the noise from the first 300 ms of `samples`.
+pub fn learn_default(samples: &[f32], sample_rate: u32) -> NoiseProfile {
+    learn(
+        &samples[default_region(samples.len(), sample_rate)],
+        sample_rate,
+    )
 }
 
 /// Turns down the learned noise in `samples`. `strength` 0 returns the
@@ -228,9 +210,9 @@ pub fn denoise(samples: &[f32], sample_rate: u32, noise: &NoiseProfile, strength
         .collect()
 }
 
-/// Learns the noise from the quietest half second and removes it.
+/// Learns the noise from the first 300 ms and removes it.
 pub fn clean(samples: &[f32], sample_rate: u32, strength: f64) -> Vec<f32> {
-    let p = learn_auto(samples, sample_rate);
+    let p = learn_default(samples, sample_rate);
     denoise(samples, sample_rate, &p, strength)
 }
 
@@ -371,16 +353,9 @@ mod tests {
     }
 
     #[test]
-    fn quietest_finds_the_gap() {
-        let mut x = sine(SR as usize * 2, 300.0, 0.5, 0);
-        for s in &mut x[SR as usize..SR as usize * 3 / 2] {
-            *s = 0.0;
-        }
-        let r = quietest(&x, SR, 0.4);
-        assert!(
-            r.start >= SR as usize && r.end <= SR as usize * 3 / 2,
-            "{r:?}"
-        );
+    fn default_region_is_the_first_300_ms() {
+        assert_eq!(default_region(SR as usize, SR), 0..14_400);
+        assert_eq!(default_region(1_000, SR), 0..1_000);
     }
 
     #[test]

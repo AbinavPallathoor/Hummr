@@ -368,7 +368,7 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub clean: f64,
     /// Where the background noise was learned from (source seconds:
-    /// start, length); `None` = the quietest half second of the clip.
+    /// start, length); `None` = the first 300 ms of the clip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub noise_region: Option<[f64; 2]>,
     #[serde(default, skip_serializing_if = "is_default")]

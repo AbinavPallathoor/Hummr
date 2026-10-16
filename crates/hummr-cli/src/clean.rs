@@ -18,7 +18,7 @@ pub struct Args {
     strength: f64,
 
     /// Learn the noise from this stretch, START:LENGTH in seconds
-    /// [default: the quietest half second].
+    /// [default: the first 300 ms].
     #[arg(long, value_name = "START:LENGTH")]
     noise: Option<String>,
 
@@ -63,7 +63,7 @@ pub fn run(args: Args) -> Result<()> {
             }
             a..b
         }
-        None => denoise::quietest(&audio.samples, sr, denoise::AUTO_NOISE_SECONDS),
+        None => denoise::default_region(audio.samples.len(), sr),
     };
     let profile = denoise::learn(&audio.samples[range.clone()], sr);
     let out = denoise::denoise(&audio.samples, sr, &profile, args.strength);

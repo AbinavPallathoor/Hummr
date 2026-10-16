@@ -163,7 +163,7 @@ pub(crate) fn cleaned_source(audio: &AudioBuffer, clip: &Clip) -> Option<AudioBu
     let sr = audio.sample_rate;
     let profile = match clip.noise_region {
         Some([start, len]) if len > 0.0 => crate::denoise::learn(&region(audio, start, len), sr),
-        _ => crate::denoise::learn_auto(&region(audio, clip.source_start, clip.source_len), sr),
+        _ => crate::denoise::learn_default(&region(audio, clip.source_start, clip.source_len), sr),
     };
     let margin = 0.05;
     let from = ((clip.source_start - margin).max(0.0) * f64::from(sr)).round() as usize;
