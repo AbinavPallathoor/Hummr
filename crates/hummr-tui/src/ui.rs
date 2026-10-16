@@ -31,6 +31,8 @@ const FAINT: Color = Color::Rgb(70, 70, 90);
 const ACCENT: Color = Color::Rgb(255, 176, 64);
 const NOTE: Color = Color::Rgb(78, 196, 222);
 const NOTE_SEL: Color = Color::Rgb(255, 196, 92);
+/// Notes in a visual-mode selection (other than the one under the cursor).
+const VISUAL: Color = Color::Rgb(255, 226, 168);
 const RED: Color = Color::Rgb(240, 84, 84);
 const GREEN: Color = Color::Rgb(96, 212, 128);
 const YELLOW: Color = Color::Rgb(232, 210, 92);
@@ -647,6 +649,8 @@ fn draw_roll(f: &mut Frame, app: &mut App, area: Rect) {
         let x1 = ((n.start_beats + n.duration_beats - left) / zoom).ceil() as i64 - 1;
         let base = if i == app.selected {
             NOTE_SEL
+        } else if app.is_selected(i) {
+            VISUAL
         } else {
             track_color(app.cur)
         };
@@ -754,6 +758,9 @@ fn draw_tracker(f: &mut Frame, app: &App, area: Rect) {
             }
         }
         let mut line = Line::from(spans);
+        if i != app.selected && app.is_selected(i) {
+            line = line.style(Style::default().bg(Color::Rgb(52, 44, 28)).fg(Color::White));
+        }
         if i == app.selected {
             let bg = if app.focus == Focus::Tracker {
                 Color::Rgb(70, 56, 30)
@@ -1074,6 +1081,31 @@ fn draw_pitch_meter(f: &mut Frame, app: &App, area: Rect) {
 // ---- bottom lines -----------------------------------------------------------
 
 fn draw_message(f: &mut Frame, app: &App, area: Rect) {
+    if app.mode == Mode::Visual {
+        let n = app.selection().map_or(0, |(a, b)| b - a + 1);
+        let mut spans = vec![
+            Span::styled(
+                " -- VISUAL -- ",
+                Style::default()
+                    .fg(BG)
+                    .bg(VISUAL)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" {n} note{} selected ", if n == 1 { "" } else { "s" }),
+                Style::default().fg(VISUAL),
+            ),
+        ];
+        if let Some((msg, _)) = app
+            .message
+            .as_ref()
+            .filter(|(m, _)| !m.starts_with("-- VISUAL"))
+        {
+            spans.push(Span::styled(format!(" {msg}"), Style::default().fg(DIM)));
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
+        return;
+    }
     if app.mode == Mode::Command {
         let word = app.command.split_whitespace().next().unwrap_or("");
         let suggestions: Vec<&str> = COMMANDS
@@ -1117,6 +1149,17 @@ fn draw_message(f: &mut Frame, app: &App, area: Rect) {
 
 fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
     match app.mode {
+        Mode::Visual => vec![
+            ("h/l 0 $", "extend"),
+            ("y", "copy"),
+            ("d", "cut"),
+            ("p", "replace"),
+            ("j/k J/K", "pitch"),
+            ("< >", "length"),
+            ("H/L", "move"),
+            ("x", "delete"),
+            ("esc", "done"),
+        ],
         Mode::Recording => vec![("r/␣/⏎", "stop & transcribe"), ("esc", "cancel")],
         Mode::Command => vec![
             ("⏎", "run"),
@@ -1158,6 +1201,8 @@ fn hints_for(app: &App) -> Vec<(&'static str, &'static str)> {
                     ("< >", "length"),
                     ("H/L", "move"),
                     ("a", "add note"),
+                    ("v", "select"),
+                    ("y/p", "copy/paste"),
                     ("x", "delete"),
                     ("M", "join next"),
                     ("D", "delete track"),
@@ -1325,6 +1370,8 @@ fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
         key("< >", "shorter / longer"),
         key("H L", "earlier / later"),
         key("M", "join with next"),
+        key("v V", "select / select all"),
+        key("y d p", "copy / cut / paste"),
         key("x", "delete note"),
         key("u", "undo"),
         key("enter", "play from note"),

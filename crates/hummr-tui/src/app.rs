@@ -31,6 +31,8 @@ pub enum Mode {
     Command,
     Picker,
     Recording,
+    /// Vim visual mode: a range of notes is selected.
+    Visual,
     Help,
 }
 
@@ -191,6 +193,10 @@ pub struct App {
     pub picker_sel: usize,
     /// Whether the picker adds a new track (`i`) or changes this one (`I`).
     pub picker_new_track: bool,
+    /// Where the visual selection started (note index in the current track).
+    pub visual_anchor: Option<usize>,
+    /// Notes copied with `y` or `d`, timed from the first one.
+    pub clipboard: Vec<SeqNote>,
     /// The playhead when stopped: where playback and recording start.
     pub cursor: f64,
 
@@ -269,6 +275,8 @@ impl App {
             picker_results: Vec::new(),
             picker_sel: 0,
             picker_new_track: true,
+            visual_anchor: None,
+            clipboard: Vec::new(),
             cursor: 0.0,
             message: Some((
                 "Press r and hum a melody, or :open take.wav. Press ? for help.".into(),
@@ -393,6 +401,7 @@ impl App {
             return;
         }
         let t = self.notes().get(self.selected).map_or(0.0, EditNote::start);
+        self.exit_visual();
         self.cur = i;
         self.mixer_sel = i;
         self.selected = self
@@ -1248,82 +1257,274 @@ impl App {
         }
     }
 
+    // ---- selection (vim visual mode) ------------------------------------
+
+    /// The notes being edited: the visual selection, or just the current note.
+    pub fn selection(&self) -> Option<(usize, usize)> {
+        let len = self.notes().len();
+        if len == 0 {
+            return None;
+        }
+        let sel = self.selected.min(len - 1);
+        match self.visual_anchor.filter(|_| self.mode == Mode::Visual) {
+            Some(a) => {
+                let a = a.min(len - 1);
+                Some((a.min(sel), a.max(sel)))
+            }
+            None => Some((sel, sel)),
+        }
+    }
+
+    pub fn is_selected(&self, i: usize) -> bool {
+        self.selection().is_some_and(|(a, b)| (a..=b).contains(&i))
+    }
+
+    fn selection_count(&self) -> usize {
+        self.selection().map_or(0, |(a, b)| b - a + 1)
+    }
+
+    /// `v`: start selecting from the current note.
+    pub fn enter_visual(&mut self) {
+        if self.notes().is_empty() {
+            return self.warn("no notes to select on this track");
+        }
+        self.mode = Mode::Visual;
+        self.visual_anchor = Some(self.selected);
+        self.info(
+            "-- VISUAL -- move to extend, then y copy · d cut · p replace · j/k pitch · esc done",
+        );
+    }
+
+    /// `V`: select every note of the track.
+    pub fn select_all(&mut self) {
+        if self.notes().is_empty() {
+            return self.warn("no notes to select on this track");
+        }
+        self.mode = Mode::Visual;
+        self.visual_anchor = Some(0);
+        self.selected = self.notes().len() - 1;
+        self.info(format!(
+            "-- VISUAL -- all {} notes of this track",
+            self.notes().len()
+        ));
+    }
+
+    pub fn exit_visual(&mut self) {
+        if self.mode == Mode::Visual {
+            self.mode = Mode::Normal;
+        }
+        self.visual_anchor = None;
+    }
+
+    /// Keeps a contiguous run of notes selected after they were re-sorted.
+    fn reselect(&mut self, moved: &[EditNote]) {
+        let idx: Vec<usize> = self
+            .notes()
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| moved.contains(n))
+            .map(|(i, _)| i)
+            .collect();
+        if let (Some(&lo), Some(&hi)) = (idx.first(), idx.last()) {
+            if self.mode == Mode::Visual {
+                let forward = self.visual_anchor.is_none_or(|a| a <= self.selected);
+                self.visual_anchor = Some(if forward { lo } else { hi });
+                self.selected = if forward { hi } else { lo };
+            } else {
+                self.selected = lo;
+            }
+        }
+    }
+
     pub fn transpose(&mut self, semitones: i32) {
-        let Some(n) = self.notes().get(self.selected).copied() else {
+        let Some((a, b)) = self.selection() else {
             return;
         };
-        let p = i32::from(n.note.pitch) + semitones;
-        if !(0..=127).contains(&p) {
+        let fits = self.notes()[a..=b]
+            .iter()
+            .all(|n| (0..=127).contains(&(i32::from(n.note.pitch) + semitones)));
+        if !fits {
             return;
         }
         self.checkpoint();
-        let sel = self.selected;
         if let Some(notes) = self.notes_mut() {
-            notes[sel].note.pitch = p as u8;
+            for n in &mut notes[a..=b] {
+                n.note.pitch = (i32::from(n.note.pitch) + semitones) as u8;
+            }
         }
-        let key = self.key;
-        let name = key.map_or_else(
-            || hummr_core::theory::note_name(p as u8),
-            |k| k.note_name(p as u8),
-        );
-        match key.filter(|k| !k.contains(p as u8)) {
-            Some(k) => self.warn(format!("{name} is outside {k}")),
-            None => self.info(name),
+        if a == b {
+            let p = self.notes()[a].note.pitch;
+            let key = self.key;
+            let name = key.map_or_else(|| hummr_core::theory::note_name(p), |k| k.note_name(p));
+            match key.filter(|k| !k.contains(p)) {
+                Some(k) => self.warn(format!("{name} is outside {k}")),
+                None => self.info(name),
+            }
+            self.fx(FxRequest::NoteFlash(a));
+        } else {
+            self.info(format!(
+                "moved {} notes by {semitones:+} semitones",
+                b - a + 1
+            ));
         }
-        self.fx(FxRequest::NoteFlash(sel));
     }
 
     pub fn change_length(&mut self, steps: i32) {
         let g = self.grid_beats();
-        let Some(n) = self.notes().get(self.selected).copied() else {
+        let Some((a, b)) = self.selection() else {
             return;
         };
-        let d = (n.note.duration_beats + f64::from(steps) * g).max(g);
-        if (d - n.note.duration_beats).abs() < 1e-9 {
-            return;
-        }
         self.checkpoint();
-        let sel = self.selected;
         if let Some(notes) = self.notes_mut() {
-            notes[sel].note.duration_beats = d;
+            for n in &mut notes[a..=b] {
+                n.note.duration_beats = (n.note.duration_beats + f64::from(steps) * g).max(g);
+            }
         }
-        self.info(format!("length {}", hummr_core::notation::format_length(d)));
-        self.fx(FxRequest::NoteFlash(sel));
+        if a == b {
+            let d = self.notes()[a].note.duration_beats;
+            self.info(format!("length {}", hummr_core::notation::format_length(d)));
+            self.fx(FxRequest::NoteFlash(a));
+        } else {
+            self.info(format!(
+                "{} notes {}",
+                b - a + 1,
+                if steps > 0 { "longer" } else { "shorter" }
+            ));
+        }
     }
 
     pub fn shift_time(&mut self, steps: i32) {
         let g = self.grid_beats();
-        let Some(n) = self.notes().get(self.selected).copied() else {
+        let Some((a, b)) = self.selection() else {
             return;
         };
-        let s = (n.note.start_beats + f64::from(steps) * g).max(0.0);
-        if (s - n.note.start_beats).abs() < 1e-9 {
+        // Move the whole selection, but never before the start of the song.
+        let earliest = self.notes()[a].start();
+        let delta = (f64::from(steps) * g).max(-earliest);
+        if delta.abs() < 1e-9 {
             return;
         }
         self.checkpoint();
-        let sel = self.selected;
         let cur = self.cur;
-        self.tracks[cur].notes[sel].note.start_beats = s;
-        let moved = self.tracks[cur].notes[sel];
+        for n in &mut self.tracks[cur].notes[a..=b] {
+            n.note.start_beats += delta;
+        }
+        let moved: Vec<EditNote> = self.tracks[cur].notes[a..=b].to_vec();
         self.tracks[cur].sort();
-        self.selected = self.notes().iter().position(|n| *n == moved).unwrap_or(0);
-        self.fx(FxRequest::NoteFlash(self.selected));
+        self.reselect(&moved);
+        if !self.playing {
+            self.cursor = moved[0].start();
+        }
+        if a == b {
+            self.fx(FxRequest::NoteFlash(self.selected));
+        }
     }
 
+    /// `x` / `d`: deletes the selection. `d` also copies it, like vim.
     pub fn delete(&mut self) {
-        if self.notes().is_empty() {
+        let Some((a, b)) = self.selection() else {
             return;
-        }
+        };
         self.checkpoint();
-        let sel = self.selected;
-        let removed = self.notes_mut().map(|n| n.remove(sel));
-        self.selected = self.selected.min(self.notes().len().saturating_sub(1));
-        if let Some(n) = removed {
-            self.info(format!(
+        let removed: Vec<EditNote> = self
+            .notes_mut()
+            .map(|n| n.drain(a..=b).collect())
+            .unwrap_or_default();
+        self.exit_visual();
+        self.selected = a.min(self.notes().len().saturating_sub(1));
+        match removed.as_slice() {
+            [one] => self.info(format!(
                 "deleted {}",
-                hummr_core::theory::note_name(n.note.pitch)
+                hummr_core::theory::note_name(one.note.pitch)
+            )),
+            many => self.info(format!("deleted {} notes", many.len())),
+        }
+    }
+
+    /// `y`: copies the selection (or the current note).
+    pub fn yank(&mut self) {
+        let Some((a, b)) = self.selection() else {
+            return self.warn("nothing to copy on this track");
+        };
+        let first = self.notes()[a].start();
+        self.clipboard = self.notes()[a..=b]
+            .iter()
+            .map(|n| SeqNote {
+                start_beats: n.note.start_beats - first,
+                ..n.note
+            })
+            .collect();
+        self.exit_visual();
+        let n = self.clipboard.len();
+        self.info(format!(
+            "copied {n} note{}. Move the playhead (or switch track) and press p to paste",
+            if n == 1 { "" } else { "s" }
+        ));
+    }
+
+    /// `d`: cut = copy, then delete.
+    pub fn cut(&mut self) {
+        let count = self.selection_count();
+        self.yank_quiet();
+        self.delete();
+        if count > 0 {
+            self.info(format!(
+                "cut {count} note{} (p pastes them)",
+                if count == 1 { "" } else { "s" }
             ));
         }
+    }
+
+    fn yank_quiet(&mut self) {
+        let anchor = self.visual_anchor;
+        let mode = self.mode;
+        self.yank();
+        // yank() leaves visual mode; cut still needs the selection.
+        self.visual_anchor = anchor;
+        self.mode = mode;
+    }
+
+    /// `p`: pastes the copied notes at the playhead on the current track.
+    /// In visual mode the selection is replaced, as in vim.
+    pub fn paste(&mut self) {
+        if self.clipboard.is_empty() {
+            return self.warn("nothing copied yet: select with v, then y");
+        }
+        if self.mode == Mode::Visual {
+            if let Some((a, _)) = self.selection() {
+                self.cursor = self.notes()[a].start();
+                self.delete();
+            }
+        }
+        self.ensure_track();
+        self.checkpoint();
+        let g = self.grid_beats();
+        let at = (self.cursor / g + 1e-9).floor() * g;
+        let pasted: Vec<EditNote> = self
+            .clipboard
+            .iter()
+            .map(|n| EditNote {
+                note: SeqNote {
+                    start_beats: n.start_beats + at,
+                    ..*n
+                },
+                sung: None,
+            })
+            .collect();
+        let cur = self.cur;
+        self.tracks[cur].notes.extend(pasted.iter().copied());
+        self.tracks[cur].sort();
+        self.exit_visual();
+        self.reselect(&pasted[..1]);
+        let end = pasted.iter().map(EditNote::end).fold(at, f64::max);
+        self.cursor = end;
+        let name = self.tracks[cur].display_name();
+        self.info(format!(
+            "pasted {} note{} into {name} at {}",
+            pasted.len(),
+            if pasted.len() == 1 { "" } else { "s" },
+            position(at)
+        ));
     }
 
     /// Types notes into the current track at the playhead (see `:notes`).
@@ -2120,6 +2321,48 @@ mod tests {
         assert_eq!(plan.at_beat, 2.0);
         feed(&mut app, plan, &[(72, 2.0)]);
         assert_eq!(pitches(&app, 1), vec![(72, 2.0)]);
+    }
+
+    #[test]
+    fn visual_select_copy_and_paste_onto_another_track() {
+        let mut app = app_with_notes(); // C4 F#4 G4 at beats 0, 1, 2
+        app.enter_visual();
+        app.select(1); // C4..F#4
+        assert!(app.is_selected(0) && app.is_selected(1) && !app.is_selected(2));
+        app.transpose(2);
+        assert_eq!(pitches(&app, 0), vec![(62, 0.0), (68, 1.0), (67, 2.0)]);
+        app.yank();
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.clipboard.len(), 2);
+        // Paste the phrase on a new cello track at bar 2.
+        app.execute(command::parse(":track new cello").unwrap());
+        app.cursor = 4.0;
+        app.paste();
+        assert_eq!(pitches(&app, 1), vec![(62, 4.0), (68, 5.0)]);
+        assert_eq!(app.cursor, 6.0, "the playhead moves past the paste");
+        app.undo();
+        assert!(app.tracks[1].notes.is_empty());
+    }
+
+    #[test]
+    fn visual_cut_move_and_replace() {
+        let mut app = app_with_notes();
+        app.select_all();
+        app.shift_time(2); // whole track one beat later (grid 1/8 = 0.5)
+        assert_eq!(pitches(&app, 0), vec![(60, 1.0), (66, 2.0), (67, 3.0)]);
+        assert_eq!(app.selection(), Some((0, 2)), "selection follows the move");
+        app.exit_visual();
+        app.selected = 2;
+        app.cut();
+        assert_eq!(pitches(&app, 0), vec![(60, 1.0), (66, 2.0)]);
+        assert_eq!(app.clipboard.len(), 1);
+        // Visual p replaces the selection with the clipboard.
+        app.selected = 0;
+        app.enter_visual();
+        app.select(1);
+        app.paste();
+        assert_eq!(pitches(&app, 0), vec![(67, 1.0)]);
+        assert_eq!(app.mode, Mode::Normal);
     }
 
     #[test]

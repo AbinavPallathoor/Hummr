@@ -23,6 +23,7 @@ pub fn on_key(app: &mut App, key: KeyEvent) {
         Mode::Normal => normal(app, key),
         Mode::Command => command(app, key),
         Mode::Picker => picker(app, key, ctrl),
+        Mode::Visual => visual(app, key),
         Mode::Recording => match key.code {
             KeyCode::Char('r') | KeyCode::Char(' ') | KeyCode::Enter => app.stop_recording(true),
             KeyCode::Esc => app.stop_recording(false),
@@ -109,6 +110,11 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('L') => app.shift_time(1),
         KeyCode::Char('H') => app.shift_time(-1),
         KeyCode::Char('x') | KeyCode::Delete => app.delete(),
+        KeyCode::Char('d') => app.cut(),
+        KeyCode::Char('v') => app.enter_visual(),
+        KeyCode::Char('V') => app.select_all(),
+        KeyCode::Char('y') => app.yank(),
+        KeyCode::Char('p') => app.paste(),
         KeyCode::Char('M') => app.join_next(),
         KeyCode::Char('D') => app.delete_track(),
         KeyCode::Char('+') | KeyCode::Char('=') => {
@@ -120,6 +126,39 @@ fn normal(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char('-') | KeyCode::Char('_') => app.view.zoom = (app.view.zoom * 2.0).min(2.0),
+        _ => {}
+    }
+}
+
+/// Vim visual mode: motions extend the selection, edits apply to all of it.
+fn visual(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('v') => {
+            app.exit_visual();
+            app.info("");
+        }
+        KeyCode::Char('V') => app.select_all(),
+        KeyCode::Char('h') | KeyCode::Char('b') | KeyCode::Left => app.select(-1),
+        KeyCode::Char('l') | KeyCode::Char('n') | KeyCode::Right => app.select(1),
+        KeyCode::Char('0') | KeyCode::Char('^') | KeyCode::Char('g') => app.jump_to_first(),
+        KeyCode::Char('$') | KeyCode::Char('G') | KeyCode::End => app.jump_to_last(),
+        KeyCode::Char('k') | KeyCode::Up => app.transpose(1),
+        KeyCode::Char('j') | KeyCode::Down => app.transpose(-1),
+        KeyCode::Char('K') => app.transpose(12),
+        KeyCode::Char('J') => app.transpose(-12),
+        KeyCode::Char('>') | KeyCode::Char('.') => app.change_length(1),
+        KeyCode::Char('<') | KeyCode::Char(',') => app.change_length(-1),
+        KeyCode::Char('L') => app.shift_time(1),
+        KeyCode::Char('H') => app.shift_time(-1),
+        KeyCode::Char('y') => app.yank(),
+        KeyCode::Char('d') => app.cut(),
+        KeyCode::Char('x') | KeyCode::Delete => app.delete(),
+        KeyCode::Char('p') => app.paste(),
+        KeyCode::Char(' ') => app.toggle_play(),
+        KeyCode::Char('u') => {
+            app.exit_visual();
+            app.undo();
+        }
         _ => {}
     }
 }

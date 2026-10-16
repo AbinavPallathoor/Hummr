@@ -47,8 +47,8 @@ command line, MIDI files you can commit to git, and a CLI for scripting.
 - 🎛️ **Build a song in layers.** `r` records a new instrument layer while the
   song plays along. `R` re-records just one instrument from the playhead. A
   one-bar count-in keeps every take in time.
-- ✏️ **Edit like vim.** `h j k l` to move around and change pitch, `a` to add
-  notes, `:notes C4 1/4 E4 1/8` to type a phrase, `u` to undo, and `:` for
+- ✏️ **Edit like vim.** `h j k l` to move around and change pitch, `v` to
+  select, `y`/`d`/`p` to copy, cut and paste, `a` to add notes, `:notes C4 1/4 E4 1/8` to type a phrase, `u` to undo, and `:` for
   everything else.
 - 🎚️ **Mixer with live meters.** Per-track volume, pan, mute and solo, plus
   your recorded voice on its own strip.
@@ -137,6 +137,8 @@ recording and adding notes all start there.
 | `<` `>` | Shorter / longer by one grid step |
 | `H` `L` | Earlier / later by one grid step |
 | `M` | Join with the next note into one held note |
+| `v` / `V` | Select notes (vim visual mode) from here / select the whole track. Move with `h` `l` `b` `n` `0` `$` to extend it; `j` `k` `<` `>` `H` `L` then change every selected note |
+| `y` / `d` / `p` | Copy / cut / paste. Copy works on the selection or the current note; `p` pastes at the playhead on whichever track you're on, so you can copy a phrase from one instrument to another. In visual mode, `p` replaces the selection |
 | `x` | Delete the note |
 | `u` | Undo (also removes a whole recorded layer or deleted track) |
 | `i` | Add an instrument as a new track (then `r` hums its part into it) |
