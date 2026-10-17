@@ -15,6 +15,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         ":export song.wav",
         "export a WAV (or .mid with the notes clips)",
     ),
+    (":bpm 120", "tempo (also :bpm half, :bpm double)"),
+    (":time 3/4", "time signature"),
+    (":key A minor", "song key (or :key none)"),
+    (":snap 1/8", "snap: 1/4, 1/8, 1/16, 1/8t or off"),
     (":anim on|off", "animations"),
     (":help", "this help"),
 ];
@@ -39,6 +43,10 @@ pub fn run(s: &mut Studio, line: &str) {
             }
         }
         "export" => export_to(s, arg),
+        "bpm" | "tempo" => s.bpm_command(arg),
+        "time" | "timesig" => s.time_command(arg),
+        "key" => s.key_command(arg),
+        "snap" | "grid" => s.snap_command(arg),
         "track" => {
             let (sub, rest) = arg.split_once(char::is_whitespace).unwrap_or((arg, ""));
             match sub {

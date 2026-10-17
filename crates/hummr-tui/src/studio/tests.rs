@@ -602,3 +602,127 @@ fn snap_to_key_moves_notes_into_the_key() {
     };
     assert!(notes[0].pitch == 60 || notes[0].pitch == 62);
 }
+
+fn type_command(s: &mut Studio, cmd: &str) {
+    press(s, &format!(":{cmd}<cr>"));
+}
+
+#[test]
+fn tempo_commands_and_nudges() {
+    let mut s = studio();
+    type_command(&mut s, "bpm 120");
+    assert_eq!(s.song().bpm, 120.0);
+    type_command(&mut s, "bpm half");
+    assert_eq!(s.song().bpm, 60.0);
+    type_command(&mut s, "bpm double");
+    assert_eq!(s.song().bpm, 120.0);
+    type_command(&mut s, "bpm fast");
+    assert_eq!(s.message.clone().unwrap().1, Level::Error);
+    type_command(&mut s, "bpm 1000");
+    assert_eq!(s.song().bpm, 400.0);
+    assert!(s.message.clone().unwrap().0.contains("20 to 400"));
+    type_command(&mut s, "bpm 100");
+    press(&mut s, ">>><");
+    assert_eq!(s.song().bpm, 102.0);
+    // The nudges are one undo step.
+    press(&mut s, "u");
+    assert_eq!(s.song().bpm, 100.0);
+    assert!(screen(&mut s, 100, 30).contains("♩ 100 BPM"));
+}
+
+#[test]
+fn tap_tempo_uses_the_median_gap() {
+    let mut s = studio();
+    let gaps = [0.0, 0.5, 0.51, 0.49, 0.9, 0.5]; // one late tap
+    let mut t = 10.0;
+    for (i, g) in gaps.iter().enumerate() {
+        t += g;
+        s.fake_now = Some(t);
+        press(&mut s, "T");
+        if i < 2 {
+            assert_eq!(s.song().bpm, 96.0, "needs three taps");
+        }
+    }
+    assert_eq!(s.song().bpm, 120.0);
+    // A long pause starts a new count; all taps undo as one step.
+    s.fake_now = Some(t + 5.0);
+    press(&mut s, "T");
+    assert_eq!(s.taps.len(), 1);
+    press(&mut s, "u");
+    assert_eq!(s.song().bpm, 96.0);
+}
+
+#[test]
+fn time_key_and_snap_commands() {
+    let mut s = studio();
+    type_command(&mut s, "time 3/4");
+    assert_eq!(s.song().time_sig, hummr_core::project::TimeSig::THREE_FOUR);
+    assert_eq!(s.song().bar_beats(), 3.0);
+    press(&mut s, "}");
+    assert_eq!(s.playhead, 3.0);
+    type_command(&mut s, "time 5");
+    assert_eq!(s.message.clone().unwrap().1, Level::Error);
+    type_command(&mut s, "key D major");
+    assert_eq!(s.song().key.unwrap().to_string(), "D major");
+    type_command(&mut s, "key none");
+    assert!(s.song().key.is_none());
+    type_command(&mut s, "key H");
+    assert_eq!(s.message.clone().unwrap().1, Level::Error);
+    type_command(&mut s, "snap 1/8");
+    assert_eq!(s.song().snap_beats(), 0.5);
+    press(&mut s, "<home>l");
+    assert_eq!(s.playhead, 0.5);
+    type_command(&mut s, "snap off");
+    assert!(s.song().snap.is_none());
+    type_command(&mut s, "snap 1/8t");
+    assert!((s.song().snap_beats() - 1.0 / 3.0).abs() < 1e-9);
+    let text = screen(&mut s, 100, 30);
+    assert!(text.contains("3/4 · no key · snap 1/8t"), "{text}");
+    press(&mut s, "uuuuuu");
+    assert_eq!(s.song().time_sig, hummr_core::project::TimeSig::FOUR_FOUR);
+    assert_eq!(s.song().key.unwrap().to_string(), "A minor");
+}
+
+#[test]
+fn a_tempo_change_re_times_sliced_clips() {
+    use hummr_core::onset::detect_onsets;
+    use hummr_core::project::render::render_clip;
+    let mut s = studio();
+    // Cut the beatbox loop at its hits and snap them (Fix → Snap to grid).
+    press(&mut s, "<cr>3jjjj<cr><esc>");
+    let id = s.selected_clip_id().unwrap();
+    let ClipKind::Sliced { slices, .. } = &s.song().clip(id).unwrap().kind else {
+        panic!("not sliced")
+    };
+    let n = slices.len();
+    let grid = 0.5;
+    for bpm in [96.0, 120.0, 80.0] {
+        type_command(&mut s, &format!("bpm {bpm}"));
+        let clip = s.song().clip(id).unwrap().clone();
+        assert_eq!(clip.start_beat, 0.0);
+        assert_eq!(clip.len_beats(bpm), 8.0, "stays two bars long");
+        let audio = render_clip(s.song(), &clip, &s.project.sources);
+        let step = grid * 60.0 / bpm;
+        let onsets = detect_onsets(&audio, hummr_core::project::PROJECT_RATE);
+        assert!(onsets.len() >= n / 2, "{} hits at {bpm}", onsets.len());
+        // The hits spread over the two bars at this tempo.
+        let last = onsets.last().unwrap().time;
+        assert!(
+            last > 6.0 * 60.0 / bpm && last < 8.0 * 60.0 / bpm,
+            "last hit at {last:.3} s at {bpm}"
+        );
+        let worst = onsets
+            .iter()
+            .map(|o| {
+                let k = (o.time / step).round();
+                (o.time - k * step).abs()
+            })
+            .fold(0.0, f64::max);
+        println!("{bpm} BPM: worst hit {:.2} ms off the grid", worst * 1000.0);
+        assert!(
+            worst < 0.015,
+            "a hit is {:.1} ms off the grid at {bpm} BPM",
+            worst * 1000.0
+        );
+    }
+}

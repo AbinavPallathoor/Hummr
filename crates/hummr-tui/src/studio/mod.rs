@@ -13,6 +13,7 @@ pub mod inspector;
 pub mod keys;
 pub mod peaks;
 pub mod record;
+pub mod song_edit;
 
 use std::time::Duration;
 
@@ -124,6 +125,12 @@ pub struct Studio {
     pub quit: bool,
     /// Seconds since start, for blinking and toasts.
     pub clock: f64,
+    /// For the steady clock (tap tempo).
+    started: std::time::Instant,
+    /// Set by tests to fix [`Studio::now`].
+    pub fake_now: Option<f64>,
+    /// Recent tempo taps ([`Studio::now`] seconds).
+    pub taps: Vec<f64>,
 }
 
 /// Options for opening the timeline.
@@ -168,6 +175,9 @@ impl Studio {
             quit_armed: false,
             quit: false,
             clock: 0.0,
+            started: std::time::Instant::now(),
+            fake_now: None,
+            taps: Vec::new(),
         };
         s.saved = s.project.song.clone();
         if let Some(p) = s.engine.problem.clone() {
