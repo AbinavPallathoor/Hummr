@@ -56,8 +56,9 @@ What you will probably hear:
   whatever matches it. Voices, music, traffic, clicks and other sounds that
   come and go are louder than the learned noise, so they are kept.
 - Measured on white hiss under a 440 Hz tone at strength 0.8: the noise
-  between notes drops about 18 dB, the noise under the tone about 15 dB,
-  and the tone's level changes by less than 0.01 dB.
+  floor drops 15.5–16.2 dB (hiss at −30, −40 and −50 dBFS), the noise
+  under the tone 14.1 dB, 50/150 Hz hum at least 12 dB, and the tone's
+  level changes by at most 0.01 dB.
 - Unless you mark a noise-only region, the noise is learned from the
   clip's first 300 ms. If you were already singing then, the learned
   "noise" includes some of the voice and the cleanup will thin the sound
