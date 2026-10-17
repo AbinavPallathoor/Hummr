@@ -6,6 +6,10 @@ use super::inspector::Panel;
 use super::{Mode, Studio, command};
 
 pub fn on_key(s: &mut Studio, key: KeyEvent) {
+    if s.notes_editor.is_some() {
+        s.notes_key(key);
+        return;
+    }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     if ctrl && key.code == KeyCode::Char('c') {
         match s.mode {
@@ -121,6 +125,7 @@ fn normal(s: &mut Studio, key: KeyEvent, ctrl: bool) {
         KeyCode::Char('>') | KeyCode::Char('.') => s.nudge_bpm(1.0),
         KeyCode::Char('T') => s.tap_tempo(),
         KeyCode::Char('M') => s.toggle_mixer(),
+        KeyCode::Char('e') => s.open_notes(),
         KeyCode::Char('?') => s.mode = Mode::Help,
         KeyCode::Char(':') => s.mode = Mode::Command(String::new()),
         KeyCode::Char('q') => s.request_quit(false),

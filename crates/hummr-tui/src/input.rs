@@ -69,6 +69,9 @@ fn normal(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Esc => {
             app.stop();
+            if app.embedded.is_some() {
+                app.quit = true;
+            }
             return;
         }
         _ => {}

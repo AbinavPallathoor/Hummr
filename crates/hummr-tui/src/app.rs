@@ -238,6 +238,9 @@ pub struct App {
     pub quit: bool,
     /// Draw as if recording, without a microphone (for screenshots only).
     pub(crate) demo_recording: bool,
+    /// Set when this editor was opened from the timeline for one notes
+    /// clip (its name): Esc and :q go back, and nothing is saved here.
+    pub embedded: Option<String>,
 }
 
 impl App {
@@ -313,6 +316,7 @@ impl App {
             busy: None,
             quit: false,
             demo_recording: false,
+            embedded: None,
         }
     }
 
@@ -383,7 +387,7 @@ impl App {
         self.tracks.iter().map(|t| t.notes.len()).sum()
     }
 
-    fn sync_strips(&mut self) {
+    pub(crate) fn sync_strips(&mut self) {
         self.strips.resize_with(self.tracks.len(), Strip::default);
         self.cur = self.cur.min(self.tracks.len().saturating_sub(1));
         self.mixer_sel = self.mixer_sel.min(self.tracks.len());
@@ -1968,6 +1972,10 @@ impl App {
 
     pub fn execute(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::Quit { .. } | Cmd::WriteQuit if self.embedded.is_some() => self.quit = true,
+            Cmd::Write(_) if self.embedded.is_some() => {
+                self.info("Changes go back to the timeline when you press Esc; save the project there with :w");
+            }
             Cmd::Quit { force } => {
                 if self.dirty && !force {
                     self.warn("unsaved changes: :w to save, :q! to quit anyway");

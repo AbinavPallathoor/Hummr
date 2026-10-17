@@ -49,6 +49,10 @@ fn hline(buf: &mut Buffer, x0: u16, x1: u16, y: u16, ch: char, style: Style) {
 }
 
 pub fn draw(f: &mut Frame, s: &mut Studio) {
+    if let Some((_, app)) = &mut s.notes_editor {
+        crate::ui::draw(f, app, s.frame_dt);
+        return;
+    }
     let area = f.area();
     let buf = f.buffer_mut();
     buf.set_style(area, Style::default().bg(BG).fg(TEXT));

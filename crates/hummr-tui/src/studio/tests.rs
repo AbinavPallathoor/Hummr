@@ -988,3 +988,53 @@ fn the_view_follows_the_playhead_smoothly_when_animated() {
         }
     }
 }
+
+fn clip_notes(s: &Studio, id: u64) -> Vec<hummr_core::project::Note> {
+    match &s.song().clip(id).unwrap().kind {
+        ClipKind::Notes { notes, .. } => notes.clone(),
+        k => panic!("not notes: {k:?}"),
+    }
+}
+
+#[test]
+fn e_edits_a_notes_clip_in_the_notes_editor_and_esc_comes_back() {
+    let mut s = studio();
+    // A recording can't be edited as notes.
+    press(&mut s, "e");
+    assert_eq!(s.screen, Screen::Timeline);
+    assert!(
+        s.message
+            .clone()
+            .unwrap()
+            .0
+            .contains("turn it into notes first")
+    );
+    press(&mut s, "j"); // mmm → bass
+    let id = s.selected_clip_id().unwrap();
+    let before = clip_notes(&s, id);
+    assert_eq!(before.len(), 3);
+    press(&mut s, "e");
+    assert_eq!(s.screen, Screen::Notes);
+    let text = screen(&mut s, 100, 30);
+    assert!(text.contains("Editing the notes of \"mmm\""), "{text}");
+    // Old editor keys: transpose the first note up two, delete the next.
+    press(&mut s, "0kklx");
+    press(&mut s, "<esc>");
+    assert_eq!(s.screen, Screen::Timeline);
+    assert!(s.notes_editor.is_none());
+    let after = clip_notes(&s, id);
+    assert_eq!(after.len(), 2);
+    assert_eq!(after[0].pitch, before[0].pitch + 2);
+    assert_eq!(after[1], before[2]);
+    assert!(s.message.clone().unwrap().0.contains("2 notes"));
+    assert!(screen(&mut s, 100, 30).contains("Beatbox Song"));
+    // One undo step brings the notes back.
+    press(&mut s, "u");
+    assert_eq!(clip_notes(&s, id), before);
+    // :q also comes back, and :w doesn't write a MIDI file.
+    press(&mut s, "e:w<cr>");
+    assert_eq!(s.screen, Screen::Notes);
+    press(&mut s, ":q<cr>");
+    assert_eq!(s.screen, Screen::Timeline);
+    assert_eq!(clip_notes(&s, id), before);
+}

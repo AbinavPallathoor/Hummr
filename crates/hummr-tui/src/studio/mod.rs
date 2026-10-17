@@ -12,6 +12,7 @@ pub mod import;
 pub mod inspector;
 pub mod keys;
 pub mod mixer;
+pub mod notes;
 pub mod peaks;
 pub mod record;
 pub mod song_edit;
@@ -158,6 +159,8 @@ pub struct Studio {
     /// The overlay and message seen at the last draw (to start fades).
     fx_overlay: Option<std::mem::Discriminant<Mode>>,
     fx_message: Option<String>,
+    /// The notes editor while it is open: the clip id and the editor.
+    pub notes_editor: Option<(u64, Box<crate::app::App>)>,
 }
 
 /// Options for opening the timeline.
@@ -212,6 +215,7 @@ impl Studio {
             frame_dt: Duration::ZERO,
             fx_overlay: None,
             fx_message: None,
+            notes_editor: None,
         };
         s.saved = s.project.song.clone();
         if let Some(p) = s.engine.problem.clone() {
@@ -252,6 +256,7 @@ impl Studio {
             self.peaks.rendered.insert(clip.id, (clip, bpm, audio));
         }
         self.tick_recording();
+        self.tick_notes(dt);
         self.tick_meters(dt.as_secs_f64());
         self.engine.advance(dt.as_secs_f64());
         if self.playing {
@@ -266,6 +271,7 @@ impl Studio {
     /// Whether the screen needs redrawing every frame.
     pub fn is_live(&self) -> bool {
         self.playing
+            || self.notes_editor.as_ref().is_some_and(|(_, a)| a.is_live())
             || self.effects.is_running()
             || self.recording.is_some()
             || !self.engine.is_ready()
