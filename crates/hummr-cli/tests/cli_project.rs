@@ -233,3 +233,12 @@ fn a_broken_soundfont_falls_back_with_a_message() {
     assert!(err.contains("built-in synth"), "{err}");
     assert!(dir.join("out.wav").exists());
 }
+
+#[test]
+fn help_says_hummr_alone_opens_or_starts_a_song() {
+    let dir = tmp_dir("help");
+    let (ok, out, _) = hummr(&dir, &["--help"]);
+    assert!(ok);
+    assert!(out.contains("open or start a song here"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

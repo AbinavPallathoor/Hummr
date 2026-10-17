@@ -20,6 +20,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     (":key A minor", "song key (or :key none)"),
     (":snap 1/8", "snap: 1/4, 1/8, 1/16, 1/8t or off"),
     (":anim on|off", "animations"),
+    (":guide [off]", "show (or hide) the three-step guide"),
     (":help", "this help"),
 ];
 
@@ -74,6 +75,10 @@ pub fn run(s: &mut Studio, line: &str) {
             _ => s.say("Use :anim on or :anim off.", Level::Error),
         },
         "help" | "h" => s.mode = super::Mode::Help,
+        "guide" => match arg {
+            "off" | "hide" => s.guide = None,
+            _ => s.guide = Some(super::start::Guide::default()),
+        },
         other => s.say(
             format!("There is no :{other} command. Press ? to see the commands."),
             Level::Error,

@@ -19,8 +19,9 @@ use clap::{Args, Parser, Subcommand};
     about = "Hummr: hum a part, get real instrument notes",
     long_about = "Hummr: hum or sing a part, and hummr turns it into notes \
                   you can play with a real instrument sound.\n\n\
-                  Run `hummr` with no arguments to open the editor.\n\n\
-                  Examples:\n  hummr                          open the editor\n  \
+                  Run `hummr` with no arguments to open the song in this folder \
+                  (or start a new one with a beat to hum over).\n\n\
+                  Examples:\n  hummr                          open or start a song here\n  \
                   hummr edit takes/take-001.wav  open a recording in the editor\n  \
                   hummr transcribe take.wav --key auto --quantize 1/8 -o lead.mid --explain"
 )]
@@ -35,7 +36,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Open the terminal editor (the default when no command is given).
+    /// Open a project on the timeline, or a .wav/.mid in the notes editor.
     Edit(EditArgs),
     /// Turn a hummed recording (WAV) into MIDI notes.
     Transcribe(transcribe::Args),
@@ -82,9 +83,20 @@ fn edit(args: EditArgs) -> anyhow::Result<()> {
     }
 }
 
+/// `hummr` alone: the project in this folder, or a starter song.
+fn start(args: EditArgs) -> anyhow::Result<()> {
+    let animations = !args.no_anim && std::env::var_os("HUMMR_NO_ANIM").is_none();
+    hummr_tui::run_start(hummr_tui::Options {
+        file: None,
+        animations,
+        mouse: args.mouse,
+    })
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
+        None if cli.edit.file.is_none() => start(cli.edit),
         None => edit(cli.edit),
         Some(Command::Edit(args)) => edit(args),
         Some(Command::Transcribe(args)) => transcribe::run(args),

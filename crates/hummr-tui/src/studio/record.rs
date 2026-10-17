@@ -38,6 +38,21 @@ pub fn trim_take(raw: &AudioBuffer, origin: f64) -> AudioBuffer {
     AudioBuffer::new(raw.samples[skip..].to_vec(), raw.sample_rate)
 }
 
+/// A microphone error as a plain sentence with what to do next.
+pub fn mic_error(e: &str) -> String {
+    let hint = mic_permission_hint();
+    let has_hint = e.contains(hint);
+    let mut text = e.trim().trim_end_matches('.').to_string();
+    if let Some(first) = text.get(..1) {
+        text = first.to_uppercase() + &text[1..];
+    }
+    if has_hint {
+        format!("Can't record: {text}.")
+    } else {
+        format!("Can't record: {text}. {hint}")
+    }
+}
+
 impl Studio {
     pub fn is_recording(&self) -> bool {
         self.recording.is_some()
@@ -52,7 +67,7 @@ impl Studio {
         let recorder = match Recorder::start() {
             Ok(r) => r,
             Err(e) => {
-                self.say(format!("{e}"), Level::Error);
+                self.say(mic_error(&e.to_string()), Level::Error);
                 return;
             }
         };

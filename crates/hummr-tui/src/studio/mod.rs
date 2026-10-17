@@ -16,6 +16,7 @@ pub mod notes;
 pub mod peaks;
 pub mod record;
 pub mod song_edit;
+pub mod start;
 pub mod tempo_prompt;
 
 use std::time::Duration;
@@ -161,6 +162,12 @@ pub struct Studio {
     fx_message: Option<String>,
     /// The notes editor while it is open: the clip id and the editor.
     pub notes_editor: Option<(u64, Box<crate::app::App>)>,
+    /// The first-run guide, while it is showing.
+    pub guide: Option<start::Guide>,
+    /// First help line shown.
+    pub help_scroll: usize,
+    /// The song is the unsaved starter song (see `start`).
+    pub starter: bool,
 }
 
 /// Options for opening the timeline.
@@ -216,6 +223,9 @@ impl Studio {
             fx_overlay: None,
             fx_message: None,
             notes_editor: None,
+            guide: None,
+            help_scroll: 0,
+            starter: false,
         };
         s.saved = s.project.song.clone();
         if let Some(p) = s.engine.problem.clone() {
@@ -317,10 +327,15 @@ impl Studio {
     }
 
     pub fn is_dirty(&self) -> bool {
+        if self.starter && self.project.song == self.saved {
+            // An untouched starter song: nothing worth keeping yet.
+            return false;
+        }
         self.project.song != self.saved || !self.project.sources_saved()
     }
 
     pub fn mark_saved(&mut self) {
+        self.starter = false;
         self.saved = self.project.song.clone();
     }
 
@@ -365,6 +380,7 @@ impl Studio {
             }
             self.engine.play(&song, self.playhead);
             self.playing = true;
+            self.guide_step(|g| g.played = true);
             if !self.engine.is_ready() {
                 self.say("Preparing the sound…", Level::Info);
             }

@@ -303,6 +303,7 @@ impl Studio {
             .expect("track exists");
         self.follow_clip(id);
         self.flash_clip(id);
+        self.guide_step(|g| g.recorded = true);
         if !known_tempo {
             self.check_new_clip_tempo(id, first);
         }

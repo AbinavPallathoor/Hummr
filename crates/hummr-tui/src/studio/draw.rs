@@ -121,11 +121,17 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
         draw_mixer(buf, s, r, sep_x);
     }
     draw_recording(buf, s, rows_area, sep_x + 1);
+    if matches!(s.mode, Mode::Normal | Mode::Mixer) {
+        draw_guide(buf, s, rows_area);
+    }
     draw_status(buf, s, Rect::new(x0 + 1, y0 + h - 3, w - 2, 1));
     draw_bottom(buf, s, Rect::new(x0 + 1, y0 + h - 2, w - 2, 1));
 
     match &s.mode {
-        Mode::Help => draw_help(f, area),
+        Mode::Help => {
+            s.help_scroll = s.help_scroll.min(help_max_scroll(area));
+            draw_help(f, area, s.help_scroll)
+        }
         Mode::Import(p) => {
             let p = p.clone();
             draw_import(f, area, &p);
@@ -495,8 +501,71 @@ fn draw_bottom(buf: &mut Buffer, s: &Studio, r: Rect) {
     }
 }
 
+/// The three-step guide, in the bottom-right corner of the track area.
+fn draw_guide(buf: &mut Buffer, s: &Studio, r: Rect) {
+    let Some(g) = &s.guide else { return };
+    let w = 70.min(r.width.saturating_sub(HEADER_W + 2));
+    let h = 5;
+    if r.height < h || w < 30 {
+        return;
+    }
+    let x0 = r.x + r.width - w - 1;
+    let y0 = r.y + r.height - h;
+    let border = Style::default().fg(ACCENT);
+    for y in y0..y0 + h {
+        for x in x0..x0 + w {
+            buf[(x, y)]
+                .set_char(' ')
+                .set_style(Style::default().bg(BG).fg(TEXT));
+        }
+        buf[(x0, y)].set_char('│').set_style(border);
+        buf[(x0 + w - 1, y)].set_char('│').set_style(border);
+    }
+    hline(buf, x0, x0 + w, y0, '─', border);
+    hline(buf, x0, x0 + w, y0 + h - 1, '─', border);
+    for (x, y, c) in [
+        (x0, y0, '╭'),
+        (x0 + w - 1, y0, '╮'),
+        (x0, y0 + h - 1, '╰'),
+        (x0 + w - 1, y0 + h - 1, '╯'),
+    ] {
+        buf[(x, y)].set_char(c).set_style(border);
+    }
+    let max = x0 + w - 1;
+    put(
+        buf,
+        x0 + 2,
+        y0,
+        " Getting started · :guide off hides this ",
+        max,
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    );
+    for (i, (done, text)) in g.steps().iter().enumerate() {
+        let (mark, style) = if *done {
+            ("✓", Style::default().fg(GREEN))
+        } else {
+            (" ", Style::default().fg(TEXT))
+        };
+        put(
+            buf,
+            x0 + 2,
+            y0 + 1 + i as u16,
+            &format!("{mark} {} {text}", i + 1),
+            max,
+            style,
+        );
+    }
+}
+
 /// The `?` help screen, in plain words.
 pub const HELP: &[(&str, &str)] = &[
+    ("", "Getting started"),
+    ("r", "record: hum, sing or beatbox after one bar of clicks"),
+    ("space", "play it with the rest of the song"),
+    (
+        "Enter",
+        "on a clip: turn it into an instrument, add effects, fix it",
+    ),
     ("", "Moving around"),
     ("h / l", "move the playhead one snap step left / right"),
     ("j / k", "next / previous row (a track, or an overlap lane)"),
@@ -550,6 +619,19 @@ pub const HELP: &[(&str, &str)] = &[
         "export the song as WAV (or .mid for the notes clips)",
     ),
     (":anim on|off", "animations"),
+    (":guide", "show the three-step guide again"),
+    ("", "In the inspector (Enter on a clip)"),
+    ("Tab / 1 2 3", "Turn into · Effects · Fix"),
+    ("j / k", "choose a setting"),
+    ("h / l", "change it (repeats undo as one step)"),
+    ("Enter", "do it (turn into, match tempo, snap to key)"),
+    ("space", "loop the clip on its own while you change it"),
+    ("", "In the mixer (M)"),
+    ("h / l", "choose a track"),
+    ("j / k", "volume down / up"),
+    ("[ / ]", "pan left / right"),
+    ("0", "reset volume and pan"),
+    ("Esc / M", "back to the clips / hide the mixer"),
 ];
 
 fn centred(area: Rect, w: u16, h: u16) -> Rect {
@@ -574,7 +656,7 @@ pub fn overlay_rect(mode: &Mode, area: Rect) -> Option<Rect> {
     }
 }
 
-fn draw_help(f: &mut Frame, area: Rect) {
+fn draw_help(f: &mut Frame, area: Rect, scroll: usize) {
     let r = overlay_rect(&Mode::Help, area).unwrap_or(area);
     let buf = f.buffer_mut();
     for y in r.y..r.y + r.height {
@@ -585,29 +667,53 @@ fn draw_help(f: &mut Frame, area: Rect) {
     let border = Style::default().fg(ACCENT);
     hline(buf, r.x, r.x + r.width, r.y, '─', border);
     hline(buf, r.x, r.x + r.width, r.y + r.height - 1, '─', border);
-    put(
-        buf,
-        r.x + 2,
-        r.y,
-        " Help · Esc to close ",
-        r.x + r.width,
-        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-    );
     // Two columns when the list doesn't fit in one.
-    let rows = usize::from(r.height.saturating_sub(2));
+    let rows = usize::from(r.height.saturating_sub(2)).max(1);
     let cols = if HELP.len() > rows && r.width >= 100 {
         2
     } else {
         1
     };
+    let scroll = scroll.min(help_max_scroll(area));
+    let more = HELP.len() > rows * cols;
+    let title = if more {
+        " Help · j/k scroll · Esc to close "
+    } else {
+        " Help · Esc to close "
+    };
+    put(
+        buf,
+        r.x + 2,
+        r.y,
+        title,
+        r.x + r.width,
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    );
+    if more {
+        let pos = format!(
+            " {}–{} of {} ",
+            scroll + 1,
+            (scroll + rows * cols).min(HELP.len()),
+            HELP.len()
+        );
+        let x = (r.x + r.width).saturating_sub(pos.chars().count() as u16 + 2);
+        put(
+            buf,
+            x,
+            r.y + r.height - 1,
+            &pos,
+            r.x + r.width,
+            Style::default().fg(DIM),
+        );
+    }
     let col_w = r.width / cols as u16;
-    for (i, (k, what)) in HELP.iter().enumerate() {
-        let c = i / rows.max(1);
+    for (i, (k, what)) in HELP.iter().skip(scroll).enumerate() {
+        let c = i / rows;
         if c >= cols {
             break;
         }
         let x = r.x + 1 + c as u16 * col_w;
-        let y = r.y + 1 + (i % rows.max(1)) as u16;
+        let y = r.y + 1 + (i % rows) as u16;
         let max = x + col_w - 1;
         if k.is_empty() {
             put(buf, x + 1, y, what, max, Style::default().fg(ACCENT));
@@ -616,6 +722,18 @@ fn draw_help(f: &mut Frame, area: Rect) {
             put(buf, x + 17, y, what, max, Style::default().fg(DIM));
         }
     }
+}
+
+/// How far the help can scroll on a screen of `area`.
+pub fn help_max_scroll(area: Rect) -> usize {
+    let r = overlay_rect(&Mode::Help, area).unwrap_or(area);
+    let rows = usize::from(r.height.saturating_sub(2)).max(1);
+    let cols = if HELP.len() > rows && r.width >= 100 {
+        2
+    } else {
+        1
+    };
+    HELP.len().saturating_sub(rows * cols)
 }
 
 fn draw_import(f: &mut Frame, area: Rect, p: &super::import::Picker) {

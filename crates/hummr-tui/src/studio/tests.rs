@@ -1038,3 +1038,123 @@ fn e_edits_a_notes_clip_in_the_notes_editor_and_esc_comes_back() {
     assert_eq!(s.screen, Screen::Timeline);
     assert_eq!(clip_notes(&s, id), before);
 }
+
+fn temp_dir(tag: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("hummr-start-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+fn start_in(dir: &std::path::Path) -> Studio {
+    crate::start_studio(
+        dir,
+        &crate::Options {
+            file: None,
+            animations: false,
+            mouse: false,
+        },
+        false,
+    )
+}
+
+#[test]
+fn no_project_here_starts_a_song_with_a_beat_and_the_guide() {
+    let dir = temp_dir("empty");
+    let mut s = start_in(&dir);
+    assert_eq!(s.song().name, start::STARTER_NAME);
+    assert_eq!(s.song().tracks.len(), 2);
+    assert_eq!(s.song().tracks[0].clips.len(), 1);
+    assert_eq!(s.current_track(), Some(1), "Voice is selected, ready for r");
+    assert!(s.guide.is_some());
+    assert!(!s.is_dirty(), "nothing to lose yet");
+    insta::assert_snapshot!(screen(&mut s, 80, 24));
+    assert!(!dir.join("my-song").exists(), "nothing written until :w");
+    // The steps tick off in any order; the guide goes when all are done.
+    press(&mut s, " ");
+    assert_eq!(s.guide.unwrap().steps().map(|x| x.0), [false, true, false]);
+    press(&mut s, " ");
+    s.playhead = 4.0;
+    press(&mut s, "ki<cr>"); // import a sample (stands in for a take)
+    assert!(s.guide.unwrap().recorded);
+    s.row = 0;
+    s.playhead = 0.0;
+    press(&mut s, "<cr>");
+    assert!(s.guide.is_none());
+    press(&mut s, "<esc>");
+    // Quitting now asks first; :w saves where the start message said.
+    press(&mut s, "q");
+    assert!(!s.quit);
+    press(&mut s, ":w<cr>");
+    let path = dir.join("my-song").join("my-song.hummr");
+    assert!(path.exists(), "{:?}", s.message);
+    // Next time, `hummr` opens it.
+    let s2 = start_in(&dir);
+    assert!(s2.guide.is_none());
+    assert_eq!(s2.song(), s.song());
+    assert!(s2.message.clone().unwrap().0.contains("Opened my-song"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_untouched_starter_quits_without_asking() {
+    let dir = temp_dir("quit");
+    let mut s = start_in(&dir);
+    press(&mut s, "q");
+    assert!(s.quit);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_most_recent_project_here_opens() {
+    let dir = temp_dir("many");
+    let mut a = hummr_core::project::Project::create_in(&dir, "Old").unwrap();
+    a.save().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let mut b = hummr_core::project::Project::new("New");
+    b.save_as(&dir.join("new.hummr")).unwrap();
+    let found = start::find_projects(&dir);
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0], dir.join("new.hummr"));
+    let s = start_in(&dir);
+    assert_eq!(s.song().name, "New");
+    assert!(s.message.clone().unwrap().0.contains("most recent of 2"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn help_scrolls_on_small_screens() {
+    let mut s = studio();
+    press(&mut s, "?");
+    let first = screen(&mut s, 80, 24);
+    assert!(first.contains("Getting started"), "{first}");
+    assert!(first.contains("j/k scroll"));
+    assert!(!first.contains("In the mixer"));
+    for _ in 0..100 {
+        press(&mut s, "j");
+    }
+    let last = screen(&mut s, 80, 24);
+    assert!(last.contains("reset volume and pan"), "{last}");
+    assert!(s.help_scroll <= draw::HELP.len());
+    // Wide screens show it all in two columns.
+    press(&mut s, "<esc>?");
+    let wide = screen(&mut s, 120, 40);
+    assert!(
+        wide.contains("Getting started") && wide.contains("reset volume and pan"),
+        "{wide}"
+    );
+}
+
+#[test]
+fn microphone_errors_say_what_to_do() {
+    let hint = hummr_core::audio::mic_permission_hint();
+    let m = record::mic_error("could not open the microphone: access denied");
+    assert!(
+        m.starts_with("Can't record: Could not open the microphone"),
+        "{m}"
+    );
+    assert!(m.ends_with(hint));
+    // The hint is not repeated when the error already has it.
+    let m = record::mic_error(&format!("no microphone found. {hint}"));
+    assert_eq!(m.matches(hint).count(), 1);
+}

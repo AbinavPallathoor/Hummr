@@ -66,14 +66,18 @@ pub fn on_key(s: &mut Studio, key: KeyEvent) {
             KeyCode::Esc => s.prompt_choose(2),
             _ => {}
         },
-        Mode::Help => {
-            if matches!(
-                key.code,
-                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::Enter
-            ) {
+        Mode::Help => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::Enter => {
                 s.mode = Mode::Normal;
+                s.help_scroll = 0;
             }
-        }
+            // Clamped to the screen size when drawn.
+            KeyCode::Char('j') | KeyCode::Down => s.help_scroll += 1,
+            KeyCode::Char('k') | KeyCode::Up => s.help_scroll = s.help_scroll.saturating_sub(1),
+            KeyCode::PageDown | KeyCode::Char(' ') => s.help_scroll += 10,
+            KeyCode::PageUp => s.help_scroll = s.help_scroll.saturating_sub(10),
+            _ => {}
+        },
     }
 }
 

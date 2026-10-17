@@ -387,6 +387,7 @@ impl Studio {
         self.inspector = Some(ins);
         self.mode = super::Mode::Inspector;
         self.refresh_preview();
+        self.guide_step(|g| g.inspected = true);
     }
 
     pub fn close_inspector(&mut self) {

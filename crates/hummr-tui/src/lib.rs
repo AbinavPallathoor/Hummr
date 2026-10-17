@@ -92,22 +92,58 @@ pub fn run_project(path: &std::path::Path, opts: Options) -> anyhow::Result<()> 
     run_studio(project, opts)
 }
 
-/// Runs the timeline on `project`.
-pub fn run_studio(project: hummr_core::project::Project, opts: Options) -> anyhow::Result<()> {
-    let sf = hummr_core::soundfont::init();
-    let mut s = studio::Studio::new(
+/// `hummr` with no arguments: opens the most recent project in the current
+/// folder, or a starter song with a beat and the three-step guide.
+pub fn run_start(opts: Options) -> anyhow::Result<()> {
+    let dir = std::env::current_dir()?;
+    let mut s = start_studio(&dir, &opts, true);
+    studio_main(&mut s)
+}
+
+/// The timeline as `hummr` with no arguments sets it up in `dir`.
+pub fn start_studio(dir: &std::path::Path, opts: &Options, audio: bool) -> studio::Studio {
+    let (project, msg, starter) = studio::start::open_or_create(dir);
+    let mut s = new_studio(project, opts, audio);
+    if s.message.is_none() {
+        s.say(msg, app::Level::Info);
+    }
+    if starter {
+        s.starter = true;
+        s.guide = Some(studio::start::Guide::default());
+        // The empty Voice track, ready for r.
+        s.row = 1;
+    }
+    s
+}
+
+fn new_studio(
+    project: hummr_core::project::Project,
+    opts: &Options,
+    audio: bool,
+) -> studio::Studio {
+    studio::Studio::new(
         project,
         &studio::StudioOptions {
             animations: opts.animations,
             mouse: opts.mouse,
-            audio: true,
+            audio,
         },
-    );
+    )
+}
+
+/// Runs the timeline on `project`.
+pub fn run_studio(project: hummr_core::project::Project, opts: Options) -> anyhow::Result<()> {
+    let mut s = new_studio(project, &opts, true);
+    studio_main(&mut s)
+}
+
+fn studio_main(s: &mut studio::Studio) -> anyhow::Result<()> {
+    let sf = hummr_core::soundfont::init();
     if s.message.is_none() && hummr_core::soundfont::configured_path().is_some() {
         s.say(sf, app::Level::Info);
     }
     let mut terminal = ratatui::init();
-    let result = studio_loop(&mut terminal, &mut s);
+    let result = studio_loop(&mut terminal, s);
     ratatui::restore();
     result
 }
