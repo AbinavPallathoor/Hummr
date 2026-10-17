@@ -852,3 +852,64 @@ fn half_or_same_tempo_does_not_ask() {
     press(&mut s, "i<cr>");
     assert_eq!(s.mode, Mode::Normal);
 }
+
+#[test]
+fn mixer_strips_change_volume_pan_mute_and_solo() {
+    let mut s = studio();
+    press(&mut s, "M");
+    assert!(s.show_mixer);
+    assert_eq!(s.mode, Mode::Mixer);
+    press(&mut s, "l"); // Bass
+    assert_eq!(s.current_track(), Some(1));
+    press(&mut s, "jjj]]]");
+    assert_eq!(s.song().tracks[1].volume_db, -3.0);
+    assert!((s.song().tracks[1].pan - 0.3).abs() < 1e-9);
+    press(&mut s, "u");
+    assert_eq!(s.song().tracks[1].pan, 0.0);
+    assert_eq!(s.song().tracks[1].volume_db, -3.0, "pan undone in one step");
+    press(&mut s, "0");
+    assert_eq!(s.song().tracks[1].volume_db, 0.0);
+    for _ in 0..80 {
+        press(&mut s, "j");
+    }
+    assert_eq!(s.song().tracks[1].volume_db, mixer::MIN_DB);
+    press(&mut s, "mlS");
+    assert!(s.song().tracks[1].mute);
+    assert!(s.song().tracks[2].solo);
+    // Esc gives the keys back to the timeline; the strips stay.
+    press(&mut s, "<esc>");
+    assert_eq!(s.mode, Mode::Normal);
+    assert!(s.show_mixer);
+    press(&mut s, "M");
+    assert!(!s.show_mixer);
+}
+
+#[test]
+fn meters_show_levels_and_fall() {
+    assert_eq!(mixer::meter_cells(0.0, 11), 0);
+    assert_eq!(mixer::meter_cells(1.0, 11), 11);
+    assert_eq!(mixer::meter_cells(0.5, 11), 10); // −6 dB
+    assert_eq!(mixer::meter_cells(0.004, 11), 0); // below −48 dB
+    let mut s = studio();
+    s.meters = vec![1.0, 0.5, 0.0, 0.1];
+    s.master_meter = 1.0;
+    s.tick(std::time::Duration::from_millis(500));
+    // 24 dB per second: half a second later, 12 dB lower.
+    assert!((hummr_core::dsp::amp_to_db(s.meters[0]) + 12.0).abs() < 0.01);
+    assert!(s.meters[2] == 0.0);
+}
+
+#[test]
+fn mixer_100x30() {
+    let mut s = studio();
+    s.edit("mix", |song| {
+        song.tracks[0].volume_db = -4.0;
+        song.tracks[1].pan = -0.4;
+        song.tracks[2].mute = true;
+        song.tracks[3].solo = true;
+    });
+    press(&mut s, "Ml");
+    s.meters = vec![0.9, 0.25, 0.0, 0.05];
+    s.master_meter = 0.95;
+    insta::assert_snapshot!(screen(&mut s, 100, 30));
+}

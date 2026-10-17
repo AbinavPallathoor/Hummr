@@ -11,6 +11,7 @@ pub mod fixture;
 pub mod import;
 pub mod inspector;
 pub mod keys;
+pub mod mixer;
 pub mod peaks;
 pub mod record;
 pub mod song_edit;
@@ -43,6 +44,8 @@ pub enum Mode {
     Import(import::Picker),
     /// The clip inspector (see `Studio::inspector`).
     Inspector,
+    /// Keys go to the mixer strips.
+    Mixer,
     /// A new sample is at another tempo: match, change the song, or leave.
     TempoPrompt(tempo_prompt::TempoPrompt),
 }
@@ -134,6 +137,11 @@ pub struct Studio {
     pub fake_now: Option<f64>,
     /// Recent tempo taps ([`Studio::now`] seconds).
     pub taps: Vec<f64>,
+    /// Whether the mixer strips are showing.
+    pub show_mixer: bool,
+    /// Per-track and master meter levels (linear peaks, falling).
+    pub meters: Vec<f32>,
+    pub master_meter: f32,
 }
 
 /// Options for opening the timeline.
@@ -181,6 +189,9 @@ impl Studio {
             started: std::time::Instant::now(),
             fake_now: None,
             taps: Vec::new(),
+            show_mixer: false,
+            meters: Vec::new(),
+            master_meter: 0.0,
         };
         s.saved = s.project.song.clone();
         if let Some(p) = s.engine.problem.clone() {
@@ -220,6 +231,7 @@ impl Studio {
             self.peaks.rendered.insert(clip.id, (clip, bpm, audio));
         }
         self.tick_recording();
+        self.tick_meters(dt.as_secs_f64());
         self.engine.advance(dt.as_secs_f64());
         if self.playing {
             if self.engine.is_playing() {
@@ -232,7 +244,15 @@ impl Studio {
 
     /// Whether the screen needs redrawing every frame.
     pub fn is_live(&self) -> bool {
-        self.playing || self.recording.is_some() || !self.engine.is_ready()
+        self.playing
+            || self.recording.is_some()
+            || !self.engine.is_ready()
+            || (self.show_mixer
+                && self
+                    .meters
+                    .iter()
+                    .chain([&self.master_meter])
+                    .any(|&m| m > 1e-4))
     }
 
     /// Changes the song as one undoable step called `label`.

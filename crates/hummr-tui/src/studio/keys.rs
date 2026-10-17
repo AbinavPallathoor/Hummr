@@ -41,6 +41,7 @@ pub fn on_key(s: &mut Studio, key: KeyEvent) {
         },
         Mode::Command(text) => command_line(s, key, text),
         Mode::Inspector => inspector(s, key, ctrl),
+        Mode::Mixer => mixer(s, key, ctrl),
         Mode::TempoPrompt(p) => match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 s.mode = Mode::TempoPrompt(super::tempo_prompt::TempoPrompt {
@@ -119,9 +120,39 @@ fn normal(s: &mut Studio, key: KeyEvent, ctrl: bool) {
         KeyCode::Char('<') | KeyCode::Char(',') => s.nudge_bpm(-1.0),
         KeyCode::Char('>') | KeyCode::Char('.') => s.nudge_bpm(1.0),
         KeyCode::Char('T') => s.tap_tempo(),
+        KeyCode::Char('M') => s.toggle_mixer(),
         KeyCode::Char('?') => s.mode = Mode::Help,
         KeyCode::Char(':') => s.mode = Mode::Command(String::new()),
         KeyCode::Char('q') => s.request_quit(false),
+        _ => {}
+    }
+}
+
+fn mixer(s: &mut Studio, key: KeyEvent, ctrl: bool) {
+    s.message = None;
+    if ctrl {
+        if key.code == KeyCode::Char('r') {
+            s.redo();
+        }
+        return;
+    }
+    match key.code {
+        KeyCode::Esc => s.mode = Mode::Normal,
+        KeyCode::Char('M') | KeyCode::Char('q') => s.toggle_mixer(),
+        KeyCode::Char('h') | KeyCode::Left => s.select_track(-1),
+        KeyCode::Char('l') | KeyCode::Right => s.select_track(1),
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::Char('+') | KeyCode::Char('=') => {
+            s.nudge_volume(1.0)
+        }
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('-') => s.nudge_volume(-1.0),
+        KeyCode::Char('[') => s.nudge_pan(-0.1),
+        KeyCode::Char(']') => s.nudge_pan(0.1),
+        KeyCode::Char('0') => s.reset_strip(),
+        KeyCode::Char('m') => s.toggle_mute(),
+        KeyCode::Char('S') => s.toggle_solo(),
+        KeyCode::Char(' ') => s.toggle_play(),
+        KeyCode::Char('u') => s.undo(),
+        KeyCode::Char('?') => s.mode = Mode::Help,
         _ => {}
     }
 }

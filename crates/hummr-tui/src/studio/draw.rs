@@ -6,6 +6,7 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Paragraph, Wrap};
 
+use super::mixer::{MIXER_H, STRIP_W, fmt_db, fmt_pan, meter_cells};
 use super::peaks::glyph;
 use super::{HEADER_W, LANE_H, Mode, Studio, clip_label};
 use crate::app::Level;
@@ -73,7 +74,8 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
     let (w, h) = (area.width, area.height);
     let (x0, y0) = (area.x, area.y);
     s.lane_cols = w - HEADER_W - 3;
-    s.visible_rows = usize::from((h - CHROME_H) / LANE_H).max(1);
+    let mixer_h = if s.show_mixer { MIXER_H } else { 0 };
+    s.visible_rows = usize::from((h - CHROME_H - mixer_h) / LANE_H).max(1);
     s.clamp_view();
 
     let border = Style::default().fg(FAINT);
@@ -108,8 +110,12 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
     draw_title(buf, s, Rect::new(x0 + 1, y0 + 1, w - 2, 1));
     let lanes = Rect::new(sep_x + 1, y0 + 3, s.lane_cols, h - CHROME_H + 2);
     draw_ruler(buf, s, Rect::new(lanes.x, y0 + 3, lanes.width, 2));
-    let rows_area = Rect::new(x0 + 1, y0 + 6, w - 2, h - CHROME_H);
+    let rows_area = Rect::new(x0 + 1, y0 + 6, w - 2, h - CHROME_H - mixer_h);
     draw_rows(buf, s, rows_area, sep_x);
+    if s.show_mixer {
+        let r = Rect::new(x0, y0 + 6 + rows_area.height, w, MIXER_H);
+        draw_mixer(buf, s, r, sep_x);
+    }
     draw_recording(buf, s, rows_area, sep_x + 1);
     draw_status(buf, s, Rect::new(x0 + 1, y0 + h - 3, w - 2, 1));
     draw_bottom(buf, s, Rect::new(x0 + 1, y0 + h - 2, w - 2, 1));
@@ -428,6 +434,8 @@ fn draw_status(buf: &mut Buffer, s: &Studio, r: Rect) {
 
 pub const HINTS: &str = "hjkl move  HJKL move clip  space play  r rec  s split  enter edit  ? help";
 
+pub const MIXER_HINTS: &str =
+    "h/l track  j/k volume  [ ] pan  m mute  S solo  0 reset  M hide  esc clips";
 pub const INSPECTOR_HINTS: &str =
     "tab panel  j/k choose  h/l change  enter apply  space loop  u undo  esc close";
 
@@ -444,6 +452,14 @@ fn draw_bottom(buf: &mut Buffer, s: &Studio, r: Rect) {
                 Style::default().fg(TEXT),
             );
         }
+        Mode::Mixer if s.message.is_none() => put(
+            buf,
+            r.x + 1,
+            r.y,
+            MIXER_HINTS,
+            max,
+            Style::default().fg(DIM),
+        ),
         Mode::Inspector if s.message.is_none() => put(
             buf,
             r.x + 1,
@@ -805,4 +821,143 @@ fn draw_tempo_prompt(f: &mut Frame, area: Rect, s: &Studio, p: &super::tempo_pro
         max,
         Style::default().fg(DIM),
     );
+}
+
+/// Mixer strips across the bottom of the track area; `r` spans the whole
+/// width including the frame columns, its first line is the separator.
+fn draw_mixer(buf: &mut Buffer, s: &Studio, r: Rect, sep_x: u16) {
+    let border = Style::default().fg(FAINT);
+    let right = r.x + r.width - 1;
+    for y in r.y + 1..r.y + r.height {
+        for x in r.x + 1..right {
+            buf[(x, y)]
+                .set_char(' ')
+                .set_style(Style::default().bg(BG).fg(TEXT));
+        }
+    }
+    hline(buf, r.x + 1, right, r.y, '─', border);
+    buf[(r.x, r.y)].set_char('├').set_style(border);
+    buf[(right, r.y)].set_char('┤').set_style(border);
+    buf[(sep_x, r.y)].set_char('┴').set_style(border);
+    let focused = s.mode == Mode::Mixer;
+    put(
+        buf,
+        r.x + 2,
+        r.y,
+        if focused {
+            " Mixer · j/k volume · [ ] pan · m mute · S solo · Esc clips "
+        } else {
+            " Mixer · M to hide "
+        },
+        right,
+        Style::default().fg(if focused { ACCENT } else { DIM }),
+    );
+    let song = s.song();
+    let cur = s.current_track();
+    // Strips: tracks then master, scrolled to keep the selected one in view.
+    let fit = usize::from((r.width - 2) / STRIP_W).max(1);
+    let n = song.tracks.len() + 1;
+    let first = cur
+        .unwrap_or(0)
+        .saturating_sub(fit.saturating_sub(2))
+        .min(n.saturating_sub(fit));
+    let cells = usize::from(STRIP_W) - 3;
+    for (k, i) in (first..n).take(fit).enumerate() {
+        let x = r.x + 1 + k as u16 * STRIP_W;
+        let max = (x + STRIP_W - 1).min(right);
+        let (name, peak, vol, pan, mute, solo, audible, color) = if i < song.tracks.len() {
+            let t = &song.tracks[i];
+            (
+                format!("{} {}", i + 1, t.name),
+                s.meters.get(i).copied().unwrap_or(0.0),
+                t.volume_db,
+                t.pan,
+                t.mute,
+                t.solo,
+                song.audible(i),
+                track_color(i),
+            )
+        } else {
+            (
+                "Master".to_string(),
+                s.master_meter,
+                0.0,
+                0.0,
+                false,
+                false,
+                true,
+                ACCENT,
+            )
+        };
+        let sel = Some(i) == cur;
+        let name_style = if sel && focused {
+            Style::default()
+                .fg(BG)
+                .bg(color)
+                .add_modifier(Modifier::BOLD)
+        } else if sel {
+            Style::default().fg(color).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(if audible { color } else { DIM })
+        };
+        put(
+            buf,
+            x + 1,
+            r.y + 1,
+            &format!("{name:<w$}", w = cells + 1),
+            max,
+            name_style,
+        );
+        let lit = meter_cells(peak, cells);
+        for c in 0..cells {
+            let frac = (c + 1) as f32 / cells as f32;
+            let on = c < lit;
+            let col = if !on {
+                FAINT
+            } else if frac > 0.92 {
+                RED
+            } else if frac > 0.75 {
+                YELLOW
+            } else {
+                GREEN
+            };
+            buf[(x + 1 + c as u16, r.y + 2)]
+                .set_char(if on { '▮' } else { '·' })
+                .set_style(Style::default().fg(col));
+        }
+        if i < song.tracks.len() {
+            put(
+                buf,
+                x + 1,
+                r.y + 3,
+                &format!("{:<7}{}", fmt_db(vol), fmt_pan(pan)),
+                max,
+                Style::default().fg(TEXT),
+            );
+            put(
+                buf,
+                x + 1,
+                r.y + 4,
+                "M",
+                max,
+                if mute {
+                    Style::default().fg(BG).bg(YELLOW)
+                } else {
+                    Style::default().fg(DIM)
+                },
+            );
+            put(
+                buf,
+                x + 3,
+                r.y + 4,
+                "S",
+                max,
+                if solo {
+                    Style::default().fg(BG).bg(GREEN)
+                } else {
+                    Style::default().fg(DIM)
+                },
+            );
+        }
+    }
 }

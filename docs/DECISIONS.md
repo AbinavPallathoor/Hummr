@@ -76,3 +76,5 @@ One line each: decision — alternatives — why.
 - The tempo prompt only appears for sources without a known tempo and longer than 1.5 s, and not when the heard tempo or its half/double is within 2% of the song — prompt on every import — one-shots have no tempo, and a loop at double tempo already fits the beat.
 - "Match to song" in the prompt cuts and snaps rhythmic clips and stretches the rest (the same rule as the inspector's default) — always stretch — cutting keeps drum attacks sharp, stretching keeps sung notes whole.
 - The first clip's tempo is applied as its own undo step after the "add clip" step — merge both — u then undoes just the tempo if the guess was wrong, keeping the clip.
+- The mixer is a 5-line strip area under the tracks (the track rows shrink) — a separate screen — clips and levels stay visible together while playing. The selected strip is the selected track, so moving in either view keeps them in step.
+- Meters show the player's per-track peaks on a −48…0 dB scale with a 24 dB/s fall — RMS meters — peaks are what the callback already measures, and the fall keeps short hits readable.
