@@ -78,3 +78,35 @@ What you will probably hear:
   sits (low thump, mid noise, high hiss). Measured on synthetic hits only;
   hits that sound like two drums at once become one drum, and toms,
   cymbals and claps become the nearest of the three.
+
+## Playback, recording and the timeline
+
+- **Playback has no limiter.** While you play the song in the app, tracks
+  are summed and a gentle soft clip catches peaks; the −1 dBFS look-ahead
+  limiter only runs when you export. A song that is too loud can sound a
+  little more distorted in the app than in the exported WAV. Turn tracks
+  down in the mixer if the master meter sits in the red.
+- **No latency compensation.** The time between the speaker playing a
+  click and the microphone hearing you is not measured or subtracted, so
+  a take can land a few milliseconds late (typically 5–30 ms, depending on
+  the sound device). With snap on, `H`/`L` or *Snap to grid* fix it.
+- **Headphones.** Recording plays the song back while you sing. Through
+  speakers the microphone records the song too, and nothing removes it.
+- **One tempo per song.** There are no tempo changes within a song.
+- **Overlapping clips both play.** A clip placed over another goes to a
+  second lane and is mixed with it; it does not replace it. Split and
+  delete the part you don't want.
+- **Preview loop.** The inspector's loop renders the clip in the
+  background after each change; on long clips with heavy settings
+  (own-sound conversion, large stretches) you may hear the old version for
+  a moment.
+- **SoundFonts are not bundled.** Free General MIDI fonts are either tens
+  of megabytes or GPL-licensed, so none ships with Hummr. Without one,
+  notes play on a small built-in synth that sounds like a basic keyboard.
+  The 0.1 notes editor always uses the built-in synth.
+- **Untested without hardware.** The tests cover everything except real
+  sound devices: speaker output and microphone input are only exercised
+  through the timing logic around them (count-in, take trimming, the
+  render thread), not with actual audio hardware.
+- **Import formats.** WAV always; mp3, flac and ogg only when built with
+  `--features decode`. Only FLAC decoding is covered by a test.

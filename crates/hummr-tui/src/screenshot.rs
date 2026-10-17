@@ -242,3 +242,111 @@ pub fn write_all(take: &Path, dir: &Path, w: u16, h: u16) -> std::io::Result<Vec
 
     Ok(written)
 }
+
+fn draw_studio(s: &mut crate::studio::Studio, w: u16, h: u16) -> Buffer {
+    let mut term = Terminal::new(TestBackend::new(w, h)).expect("test backend");
+    term.draw(|f| crate::studio::draw::draw(f, s))
+        .expect("draw");
+    term.backend().buffer().clone()
+}
+
+fn fixture_studio() -> crate::studio::Studio {
+    crate::studio::Studio::new(
+        crate::studio::fixture::mockup_project(),
+        &crate::studio::StudioOptions::default(),
+    )
+}
+
+/// Renders the timeline screenshots into `dir` as SVG files.
+pub fn write_timeline(dir: &Path, w: u16, h: u16) -> std::io::Result<Vec<String>> {
+    use crate::studio::{Mode, keys};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let press = |s: &mut crate::studio::Studio, keys_: &str| {
+        for c in keys_.chars() {
+            let code = match c {
+                '\n' => KeyCode::Enter,
+                '\t' => KeyCode::Tab,
+                c => KeyCode::Char(c),
+            };
+            keys::on_key(s, KeyEvent::new(code, KeyModifiers::NONE));
+            s.tick(Duration::ZERO);
+        }
+    };
+    std::fs::create_dir_all(dir)?;
+    let mut written = Vec::new();
+    let mut save = |name: &str, title: &str, buf: Buffer| -> std::io::Result<()> {
+        let path = dir.join(format!("{name}.svg"));
+        std::fs::write(&path, to_svg(&buf, title))?;
+        written.push(path.display().to_string());
+        Ok(())
+    };
+
+    // 1. The timeline while playing, with the mixer open.
+    let mut s = fixture_studio();
+    s.row = 2;
+    s.playhead = 6.5;
+    s.show_mixer = true;
+    s.playing = true;
+    s.meters = vec![0.55, 0.3, 0.42, 0.0];
+    s.master_meter = 0.7;
+    s.say(
+        "Space stops · Enter on a clip opens its inspector · M hides the mixer",
+        crate::app::Level::Info,
+    );
+    save(
+        "timeline",
+        "hummr — the timeline with the mixer",
+        draw_studio(&mut s, w, h),
+    )?;
+
+    // 2. The inspector on a hummed take, effects panel.
+    let mut s = fixture_studio();
+    s.row = 3;
+    s.playhead = 12.0;
+    press(&mut s, "\n2llll");
+    save(
+        "inspector",
+        "hummr — the clip inspector",
+        draw_studio(&mut s, w, h),
+    )?;
+
+    // 3. A sample at another tempo.
+    let mut s = fixture_studio();
+    let (beat, _) = hummr_core::synthetic::drum_groove(
+        120.0,
+        2,
+        1,
+        0.0,
+        0.0,
+        2,
+        hummr_core::project::PROJECT_RATE,
+    );
+    s.add_clip_from_audio(
+        "loop 120",
+        hummr_core::AudioBuffer::new(beat, hummr_core::project::PROJECT_RATE),
+        None,
+        Some(0),
+        20.0,
+    );
+    if matches!(s.mode, Mode::TempoPrompt(_)) {
+        save(
+            "tempo",
+            "hummr — a sample at another tempo",
+            draw_studio(&mut s, w, h),
+        )?;
+    }
+
+    // 4. A new song: the starter beat and the three-step guide.
+    let mut s = crate::studio::Studio::new(
+        crate::studio::start::starter_project(Path::new(".")),
+        &crate::studio::StudioOptions::default(),
+    );
+    s.guide = Some(crate::studio::start::Guide::default());
+    s.row = 1;
+    s.say(
+        "A new song with a beat to start from. :w saves it as my-song/my-song.hummr.",
+        crate::app::Level::Info,
+    );
+    save("start", "hummr — a new song", draw_studio(&mut s, w, h))?;
+    Ok(written)
+}

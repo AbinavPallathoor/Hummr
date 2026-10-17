@@ -1,8 +1,8 @@
 <h1 align="center">hummr</h1>
 
 <p align="center">
-  <b>Hum it. Hear it on a real instrument.</b><br>
-  A terminal music editor for people who are good at code and not so good at music.
+  <b>Record first. Make it sound good after.</b><br>
+  A terminal music studio for people who are good at code and not so good at music.
 </p>
 
 <p align="center">
@@ -13,47 +13,28 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="hummr after transcribing a hummed take: piano roll, tracker showing sung pitches and snapped notes, and mixer" width="100%">
+  <img src="docs/screenshots/timeline.svg" alt="The hummr timeline: tracks of clips with waveforms, an overlap lane, and the mixer with level meters" width="100%">
 </p>
 
-Press `r` and hum a tune. Hummr hears the pitch, works out the notes, the key
-and the tempo, cleans up the wobbly bits, and gives you a melody you can play
-on a violin, flute, cello or 125 other instruments. Then hum another part over
-it. Each one becomes a new track, and together they make a song.
+Hum a bass line, beatbox a beat, sing a melody. Each recording lands on a
+timeline as a clip. Then you shape it: snap a sloppy beat onto the grid, fit
+a loop to the song's tempo, turn your hum into a piano or a bass guitar, turn
+your beatbox into real drums, add reverb or a lo-fi sound, clean up the hiss.
+Every change can be undone, and your recordings are never overwritten.
 
-It runs offline in your terminal and is written entirely in Rust. It needs no
-network or Python, and it works with your coder habits: keyboard first, a `:`
-command line, MIDI files you can commit to git, and a CLI for scripting.
+It runs offline in your terminal and is written entirely in Rust: no
+network, no Python, no plugins. Songs are plain-text `.hummr` files you can
+commit to git, and everything the editor does is also on the command line.
 
 ## Contents
 
-- [Features](#features)
 - [Install](#install)
-- [Quick start](#quick-start)
-- [The editor](#the-editor)
+- [A five-minute tour](#a-five-minute-tour)
+- [Tempo and snapping, in plain words](#tempo-and-snapping-in-plain-words)
+- [Keys](#keys)
 - [Command line](#command-line)
-- [How it works](#how-it-works)
-- [Development](#development)
-- [Roadmap](#roadmap)
-
-## Features
-
-- 🎤 **Hum to notes.** pYIN pitch tracking with HMM smoothing turns your
-  voice into clean notes. It keeps vibrato, scoops and drifting pitch inside a
-  single note and holds long notes for as long as you held them.
-- 🎼 **Forgiving about music.** It detects the key and snaps stray notes into
-  it, fixes it if you sang the whole thing a bit flat, and lines notes up on a
-  tempo grid. With `--explain` it tells you every change it made and why.
-- 🎛️ **Build a song in layers.** `r` records a new instrument layer while the
-  song plays along. `R` re-records just one instrument from the playhead. A
-  one-bar count-in keeps every take in time.
-- ✏️ **Edit like vim.** `h j k l` to move around and change pitch, `v` to
-  select, `y`/`d`/`p` to copy, cut and paste, `a` to add notes, `:notes C4 1/4 E4 1/8` to type a phrase, `u` to undo, and `:` for
-  everything else.
-- 🎚️ **Mixer with live meters.** Per-track volume, pan, mute and solo, plus
-  your recorded voice on its own strip.
-- 💾 **Plain files.** Songs save as standard multi-track MIDI, each instrument
-  on its own track. Your takes are kept as WAV files in `./takes`.
+- [Honest limits](#honest-limits)
+- [More](#more)
 
 ## Install
 
@@ -65,10 +46,11 @@ cd Hummr
 cargo install --path crates/hummr-cli
 ```
 
-That puts a `hummr` command on your path. If you'd rather not install it, run
-`cargo run --release -p hummr-cli` from the repo instead.
+That puts a `hummr` command on your path. Without installing, use
+`cargo run --release -p hummr-cli --` instead of `hummr`.
 
-**Platform notes**
+To import mp3, flac and ogg files as well as WAV, build with
+`cargo install --path crates/hummr-cli --features decode`.
 
 | | |
 |---|---|
@@ -76,206 +58,221 @@ That puts a `hummr` command on your path. If you'd rather not install it, run
 | **Linux** | Install the ALSA headers before building: `sudo apt install libasound2-dev pkg-config` (Debian/Ubuntu) or `sudo dnf install alsa-lib-devel` (Fedora). |
 | **Windows** | Nothing extra. |
 
-Use headphones when you record layers, so the microphone doesn't pick up the
-song playing back.
-
-## Quick start
+**Better instrument sounds.** Out of the box, notes play on a small built-in
+synth. For real instrument sounds, download any General MIDI SoundFont (a
+`.sf2` file, e.g. GeneralUser GS or FluidR3) and point Hummr at it:
 
 ```sh
+export HUMMR_SOUNDFONT=~/sounds/GeneralUser.sf2
+# or put  soundfont = "/path/to/font.sf2"  in ~/.config/hummr/config.toml
+```
+
+## A five-minute tour
+
+Use headphones, so the microphone doesn't hear the song playing back.
+
+```sh
+mkdir my-music && cd my-music
 hummr
 ```
 
-1. Press **`r`**, hum a short melody (try "Twinkle Twinkle"), and press
-   **`r`** again. A second later your notes appear in the piano roll.
-2. Press **`space`** to hear it back. Press **`I`** to change its instrument.
-3. Press **`i`**, pick a second instrument (it gets its own track), then press
-   **`r`** to hum its part over the first. You'll get a
-   one-bar count-in, and then the song plays while you sing.
-4. Press **`:w`** to save the song as a MIDI file.
+<img src="docs/screenshots/start.svg" alt="A new song: a starter beat on the first track, an empty Voice track, and a three-step guide" width="100%">
 
-No microphone handy? Make a synthetic hummed take and open that:
+1. **You start with a beat.** `hummr` with no arguments opens the song in
+   this folder, or makes a new one with a two-bar beat to hum over. The
+   little guide in the corner ticks off as you go.
+2. **Record.** The empty *Voice* track is selected. Press **`r`**: you hear
+   one bar of clicks, then the beat plays and you hum, sing or beatbox.
+   Press **`r`** again to stop. Your take appears as a clip right where the
+   playhead was.
+3. **Listen.** Press **`space`**. Move with **`h` `l`** (time) and
+   **`j` `k`** (tracks).
+4. **Change its sound.** Put the playhead on your clip and press
+   **`Enter`**. The inspector opens and your clip loops on its own while you
+   try things:
+   - *Turn into* → **Notes on an instrument**: your hum becomes notes played
+     on piano, bass, strings…; **Drums**: each beatboxed hit becomes a kick,
+     snare or hi-hat; **My own sound**: your voice becomes the instrument.
+   - *Effects*: presets (Lo-fi, Dreamy, Gritty, Telephone, Radio, Big hall,
+     Warm, Bright) with an amount, plus distortion, reverb, echo, filter,
+     pitch, speed, volume, pan, fades, reverse and loop.
+   - *Fix*: clean background hiss, match the tempo, snap hits to the grid,
+     snap notes to the key.
+   `Esc` closes it. **`u`** undoes anything.
+5. **Edit.** `s` splits a clip at the playhead, `d` duplicates it, `y`/`p`
+   copy and paste, `x` deletes, **`H` `L`** move it along the grid and
+   **`J` `K`** move it to another track. Two clips that overlap on a track
+   get a second lane, so nothing is ever hidden.
+6. **Mix.** **`M`** shows the mixer: level meters, volume, pan, mute, solo.
+7. **Save and share.** `:w` saves the song (a folder with `my-song.hummr`
+   and your recordings in `sources/`). `:export song.wav` writes a mix;
+   `:export song.mid` writes the notes clips as MIDI.
+
+Want to hear what it can do before recording anything?
 
 ```sh
-cargo run -p hummr-core --example synth_take -- take.wav
-hummr take.wav
+hummr demo        # writes 21 example WAVs into ./demo/, described in demo/ABOUT.txt
 ```
 
-## The editor
+Start with `00-song.wav`, then compare `01-beatbox-sloppy.wav` with
+`02-beatbox-snapped.wav`.
 
-The screen has a **piano roll** at the top. A tab for each track sits above
-it, numbered `1`, `2`, `3`…, and the other tracks show dulled behind the one
-you're editing. Below the roll are the **tracker** (the current track's notes
-as a list) and the **mixer**. The playhead is the `▼` line: playing,
-recording and adding notes all start there.
+## Tempo and snapping, in plain words
 
-### Recording
+**Tempo** is how fast the beat goes, in beats per minute (BPM). The song
+has one tempo, shown at the top right. Change it with `:bpm 100`, nudge it
+with `<` and `>`, or tap it: press `T` a few times in time with the music.
+
+**Recording to the click.** When you record in Hummr you hear the song's
+beat, so your take is already at the song's tempo; nothing needs fixing.
+
+**Bringing in a loop from elsewhere.** A sample made at another tempo will
+drift against your beat. When you import one, Hummr listens for its beat
+and, if it is more than 2% off, asks what to do:
+
+- **Match to song.** Fit it to your tempo. For drums and beatbox, Hummr
+  *cuts at each hit and moves the hits onto your beat*: every hit keeps its
+  exact sound, only the gaps change. For humming and singing it *stretches*
+  the sound to the new speed without changing its pitch.
+- **Change song to N.** Use the loop's tempo for the whole song.
+- **Leave as is.** Keep it untouched.
+
+It also tells you how sure it is ("118 BPM, sure" or "118 BPM or 59? not
+sure"); press `h` or `d` to say it is really half or double. The first clip
+in an empty song simply sets the song's tempo.
+
+**Snapping** moves each hit onto the nearest grid line, so a slightly
+early or late beat sounds tight. The grid is the *snap* size at the top
+right: `1/4` is every beat, `1/8` every half beat, `1/16` every quarter
+beat, `1/8t` triplets. Change it with `:snap 1/8`. In the inspector,
+*Fix → Snap to grid* cuts a clip at its hits and snaps them; `h`/`l` set
+the strength from 0% (as played) to 100% (exactly on the grid), so you can
+keep a little human feel. Snapped clips follow tempo changes: change the
+BPM and every hit moves with the beat.
+
+**Snap to key** does the same for notes: notes that are outside the song's
+key (`:key A minor`) move to the nearest note that is in it.
+
+## Keys
+
+Press `?` in the app for all of these. The clip keys work on the clip
+under the playhead on the selected row.
+
+### Timeline
 
 | Key | |
 |---|---|
-| `r` | On an empty song, record the first take freely; it sets the tempo and key. After that, `r` records a **new layer** on a new track with a different instrument, while the song plays along. |
-| `R` | **Re-record this track** from the playhead. Whatever you sing over is replaced; the rest stays. |
-| `r` / `space` / `enter` | Stop recording and transcribe. `esc` cancels. |
-
-### Moving around
-
-| Key | |
-|---|---|
+| `h` `l` / `←` `→` | Move the playhead one snap step |
+| `j` `k` / `↓` `↑` | Next / previous row (a track, or its overlap lane) |
+| `{` `}` | Previous / next bar |
+| `Home` `End` | Start / end of the song |
+| `+` `-` / `0` | Zoom in / out / fit the whole song |
 | `space` | Play / stop from the playhead |
-| `[` `]`  `{` `}` | Move the playhead a beat / a bar (`Home` goes to the start) |
-| `z` | Zoom out to show every note of every track (`+` / `-` zoom) |
-| `1`–`9` | Switch track |
-| `h` `l` or `b` `n` | Previous / next note |
-| `0` (or `^`) / `$` | First / last note of the track (`g` / `G` work too) |
-| `tab` | Next panel: roll → tracker → mixer |
+| `r` | Record on this track at the playhead (one bar of clicks first; `r` or `space` stops, `Esc` cancels) |
+| `i` | Import a sample: built-in sounds, or WAVs in the project folder and the current folder |
+| `Enter` | Open the clip's inspector |
+| `e` | Edit the notes of a notes clip in the piano roll (`Esc` comes back) |
+| `s` | Split the clip at the playhead |
+| `x` | Delete the clip |
+| `y` / `p` | Copy the clip / paste it at the playhead |
+| `d` | Duplicate the clip right after itself |
+| `H` `L` | Move the clip one snap step earlier / later |
+| `J` `K` | Move the clip to the track below / above |
+| `u` / `Ctrl-r` | Undo / redo |
+| `n` | New track |
+| `m` / `S` | Mute / solo this track |
+| `M` | Show the mixer (and give it the keys) |
+| `<` `>` | Tempo down / up by 1 BPM |
+| `T` | Tap the tempo |
+| `?` | Help |
+| `:` | Type a command |
+| `q` | Quit (asks once if there are unsaved changes) |
 
-### Editing notes
+### Inspector (`Enter` on a clip)
 
 | Key | |
 |---|---|
-| `a` | Add a note at the playhead. It copies the previous note's pitch, and pressing `a` again writes the next note |
-| `j` `k` / `J` `K` | Pitch down / up a semitone / an octave |
-| `<` `>` | Shorter / longer by one grid step |
-| `H` `L` | Earlier / later by one grid step |
-| `M` | Join with the next note into one held note |
-| `v` / `V` | Select notes (vim visual mode) from here / select the whole track. Move with `h` `l` `b` `n` `0` `$` to extend it; `j` `k` `<` `>` `H` `L` then change every selected note |
-| `y` / `d` / `p` | Copy / cut / paste. Copy works on the selection or the current note; `p` pastes at the playhead on whichever track you're on, so you can copy a phrase from one instrument to another. In visual mode, `p` replaces the selection |
-| `x` | Delete the note |
-| `u` | Undo (also removes a whole recorded layer or deleted track) |
-| `i` | Add an instrument as a new track (then `r` hums its part into it) |
-| `I` | Change this track's instrument |
-| `D` | Delete this track |
-| `t` | Switch the tracker to **why notes changed** |
+| `Tab` / `1` `2` `3` | Turn into · Effects · Fix |
+| `j` `k` | Choose a setting |
+| `h` `l` | Change it (a run of presses is one undo step) |
+| `Enter` | Do it: turn into, match tempo, snap to the grid, snap to key |
+| `space` | Loop the clip on its own while you change it (on by default) |
+| `u` / `Ctrl-r` | Undo / redo |
+| `Esc` | Close |
 
-### Mixer (press `tab` to reach it)
+### Mixer (`M`)
 
-`h` `l` select a strip · `j` `k` volume · `[` `]` pan · `m` mute · `s` solo ·
-`x` delete that track.
+| Key | |
+|---|---|
+| `h` `l` | Choose a track |
+| `j` `k` | Volume down / up (1 dB) |
+| `[` `]` | Pan left / right |
+| `m` / `S` | Mute / solo |
+| `0` | Reset volume and pan |
+| `Esc` / `M` | Back to the clips / hide the mixer |
 
 ### Commands
 
 | Command | |
 |---|---|
-| `:w [file.mid]` | Save every track as a multi-track MIDI file |
-| `:export song.wav` | Export an audio mix (or `.mid`) |
-| `:open take.wav` / `:open song.mid` | Open a recording or a MIDI file |
-| `:notes C4 1/4 E4 1/8 r 1/8 G4 1/2` | Type notes in at the playhead |
-| `:track new cello` · `:track 2` · `:track del` · `:track name Bass` | Manage tracks |
-| `:instrument flute` · `:transpose -12` | Change this track's instrument, or shift it an octave down |
-| `:key D minor` · `:tempo 100` · `:quantize 1/16` | Song settings |
-| `:anim off` · `:mouse on` | Turn off animations, or turn on the mouse (click notes and the ruler, right-click to add a note) |
-| `:q` · `:q!` · `:wq` | Quit |
+| `:w [file.hummr]` | Save (to a new file if given) |
+| `:q` · `:q!` · `:wq` | Quit · quit without saving · save and quit |
+| `:export song.wav` | Export the mix as WAV (`song.mid` exports the notes clips as MIDI) |
+| `:bpm 120` · `:bpm half` · `:bpm double` | Tempo |
+| `:time 3/4` | Time signature |
+| `:key A minor` · `:key none` | Song key |
+| `:snap 1/8` · `:snap off` | Snap size: `1/4`, `1/8`, `1/16`, `1/8t` or off |
+| `:track name Bass` · `:track new` · `:track delete` | Tracks |
+| `:anim off` | Turn off animations |
+| `:guide` | Show the three-step guide again |
 
-**Note notation.** A note name with its octave (`C4` is middle C), then its
-length as a fraction of a whole note: `1/4` is a beat, `1/8` half a beat, `3/8`
-dotted, `1/8t` a triplet. `r` is a rest.
+The notes editor (`e`) is the piano roll from Hummr 0.1; its keys are in
+[docs/USAGE.md](docs/USAGE.md#the-notes-editor).
 
 ## Command line
 
-Everything the editor does to a take is also available from scripts.
-
-```console
-$ hummr transcribe take.wav --key auto --quantize 1/8 -o lead.mid --explain
-take.wav  10.1 s · 44.1 kHz
-  tuning   sung 27¢ flat on average; corrected
-  key      C major  (detected, score 0.98; runner-up A minor 0.63)
-  tempo    100 BPM  (detected, 1/8 grid, fit 0.97)
-  notes    14
-
-  C4 1/4 C4 1/4 G4 1/4 G4 1/4 A4 1/4 A4 1/4 G4 1/2 F4 1/4 F4 1/4 E4 1/4 E4 1/4
-  D4 1/4 D4 1/4 C4 1/2
-
-why notes changed:
-    -    0.386s  length  held 13 notes through the short breath before the next note
-  #4     2.155s  timing  start 2.155s → bar 1 beat 4 (+10 ms)
-  ...
-wrote lead.mid
-```
-
-| Option | |
-|---|---|
-| `--key auto` | Detect the key and snap stray notes into it. You can also give a key (`"D minor"`, `F#m`, `Bb`, `"A minor pentatonic"`), or `none` to keep every note as sung |
-| `--quantize 1/8` | Grid: `1/4`, `1/8`, `1/16`, `1/8t` or `off` |
-| `--tempo auto` | Detect the tempo, or give one (`--tempo 96`) |
-| `--explain` | List every change, for example `moved F#4 to F4: outside C major` |
-| `--no-tuning` | Don't correct for singing sharp or flat |
-| `--pitch-csv f.csv` | Dump the frame-by-frame pitch, for debugging a tricky take |
-
 ```sh
-hummr record -o take.wav             # record from the default microphone (Enter stops)
+hummr                                # open the song here, or start a new one
+hummr my-song/my-song.hummr          # open a song
+hummr new "Night Drive"              # create night-drive/night-drive.hummr
+hummr export song.hummr -o mix.wav   # render the mix (or -o notes.mid)
+hummr demo                           # example WAVs into ./demo/
+
+hummr detect loop.wav --hits         # tempo, beat, confidence and every hit
+hummr snap loop.wav --bpm 96 --grid 1/8 --strength 0.8
+hummr clean voice.wav --strength 0.8 --noise 0:0.5
 hummr record -o take.wav --seconds 8
-hummr edit song.mid --no-anim        # open the editor on a file
+hummr transcribe take.wav --key auto --quantize 1/8 -o lead.mid --explain
+hummr edit take.wav                  # the 0.1 hum-to-notes editor
 ```
 
-The input is WAV for now. To convert a phone memo, run
-`ffmpeg -i memo.m4a take.wav`.
+## Honest limits
 
-## How it works
+Hummr is built and tested by measurement on synthetic sounds, not by ear;
+the numbers are in [docs/LIMITS.md](docs/LIMITS.md). The main ones:
 
-```
- voice ──► pYIN pitch tracking ──► note segmentation ──► key + snapping ──► tempo + grid ──► notes
-           (YIN × 100 thresholds,   (note HMM, energy      (Krumhansl–         (onset phase
-            pitch/voicing HMM)       dips, tuning fix)      Schmuckler)          alignment)
-```
+- Stretching drums blurs their hits, which is why rhythmic clips are cut and
+  snapped instead. Big pitch shifts sound like a smaller or bigger person.
+- Tempo detection is reliable for clear beats between 80 and 160 BPM. It
+  says "no steady beat" for humming and pads rather than guessing.
+- Noise cleanup handles steady hiss and hum, not voices, music or traffic.
+- Turning into notes follows one note at a time (no chords).
+- Microphone and speaker delay are not compensated, so takes can land a few
+  milliseconds late; nudge them with `H`/`L` at a fine snap if you hear it.
+- There is no bundled SoundFont; without one, notes use the built-in synth.
 
-1. **Pitch.** YIN runs with 100 thresholds weighted by a Beta prior, which
-   gives several candidate pitches per 5 ms frame. A Viterbi pass over a
-   pitch-and-voicing HMM then picks the smoothest believable path, which removes
-   octave jumps and glitches. It's implemented from scratch in `hummr-core`.
-2. **Notes.** A note-level HMM (one state per semitone, plus silence) starts a
-   new note only when the pitch really moves, so vibrato and scoops stay inside
-   one note. A quick dip in loudness, as in "da-da", splits repeated notes; a
-   slow swell does not. If you sing consistently sharp or flat, that's measured
-   and removed.
-3. **Key.** Krumhansl–Schmuckler key finding, adjusted so that notes you sang
-   clearly count against keys that don't contain them. Stray notes then snap
-   to the nearest in-key pitch.
-4. **Rhythm.** The tempo is the one whose grid best fits your note onsets.
-   Short breaths count as part of the note, not as rests, so held notes keep
-   their length. Later takes reuse the song's tempo, anchored to the count-in.
+## More
 
-Every step records what it changed, which is what `--explain` and the **why**
-panel show.
+- [docs/USAGE.md](docs/USAGE.md): the full guide, including the notes editor
+  and the project file format.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code is organised.
+- [docs/LIMITS.md](docs/LIMITS.md): measured limits.
+- [CHANGELOG.md](CHANGELOG.md).
 
-## Development
-
-```sh
-cargo build
-cargo test                                   # ~100 tests, incl. synthetic-audio DSP and golden MIDI files
-cargo clippy --all-targets -- -D warnings
-```
-
-| Crate | |
-|---|---|
-| [`hummr-core`](crates/hummr-core) | The audio engine: pitch tracking, segmentation, key, rhythm, preview synth, recording and playback (`cpal`), MIDI and WAV. It has no UI dependencies. |
-| [`hummr-tui`](crates/hummr-tui) | The terminal editor (`ratatui`, with `tachyonfx` for transitions). |
-| [`hummr-cli`](crates/hummr-cli) | The `hummr` binary. |
-
-- **Golden files.** The DSP tests sing synthetic melodies with vibrato, drift,
-  breath noise and fading. Golden MIDI files live in
-  `crates/hummr-core/tests/golden` (regenerate with `UPDATE_GOLDEN=1 cargo test`).
-- **Screens as text.** To see a screen without a terminal, run
-  `cargo run -p hummr-tui --example screen -- take.wav "lll" 110 34`.
-
-## Roadmap
-
-Hummr is young. Here's what works today and what's coming:
-
-- [x] Hum-to-MIDI transcription with explanations
-- [x] Terminal editor: recording, layers, re-recording, note editing, mixer
-- [x] Multi-track MIDI save/load, WAV export
-- [ ] **Real instrument sound.** Playback currently uses a small built-in
-      preview synth. Next is SoundFont rendering with the free GeneralUser GS
-      bank
-- [ ] Plain-text TOML song files and `hummr mix`
-- [ ] `hummr watch` to re-render on every save
-- [ ] Auto accompaniment: `hummr add bass`, `hummr add drums`
-- [ ] Beatbox to drums (kick / snare / hi-hat classifier)
-
-**Known limitations.** Each take has one tempo, so a singer who speeds up a
-lot will quantize less well. A brief voice crack in the middle of a long note
-looks like two notes (press `M` to join them). Automatic key detection picks
-between major and minor keys; use `:key` for other modes. Speaker and
-microphone delay isn't compensated yet.
+Development: `cargo test` runs 254 tests (synthetic-audio DSP,
+timeline key-driven tests, text-screen snapshots);
+`cargo clippy --all-targets -- -D warnings` must stay clean. Screens can be
+regenerated with `cargo run -p hummr-tui --example screenshots -- -`.
 
 ## License
 
