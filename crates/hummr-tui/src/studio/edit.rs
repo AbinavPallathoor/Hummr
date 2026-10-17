@@ -164,6 +164,7 @@ impl Studio {
     }
 
     pub fn undo(&mut self) {
+        self.last_merge = None;
         match self.history.undo(&mut self.project.song) {
             Some(label) => {
                 self.touch();
@@ -175,6 +176,7 @@ impl Studio {
     }
 
     pub fn redo(&mut self) {
+        self.last_merge = None;
         match self.history.redo(&mut self.project.song) {
             Some(label) => {
                 self.touch();

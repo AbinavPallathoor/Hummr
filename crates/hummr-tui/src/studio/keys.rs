@@ -2,6 +2,7 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::inspector::Panel;
 use super::{Mode, Studio, command};
 
 pub fn on_key(s: &mut Studio, key: KeyEvent) {
@@ -39,6 +40,7 @@ pub fn on_key(s: &mut Studio, key: KeyEvent) {
             _ => {}
         },
         Mode::Command(text) => command_line(s, key, text),
+        Mode::Inspector => inspector(s, key, ctrl),
         Mode::Help => {
             if matches!(
                 key.code,
@@ -93,10 +95,75 @@ fn normal(s: &mut Studio, key: KeyEvent, ctrl: bool) {
         }
         KeyCode::Char('r') => s.start_recording(),
         KeyCode::Char('i') => s.open_import(),
+        KeyCode::Enter => s.open_inspector(),
         KeyCode::Char('?') => s.mode = Mode::Help,
         KeyCode::Char(':') => s.mode = Mode::Command(String::new()),
         KeyCode::Char('q') => s.request_quit(false),
         _ => {}
+    }
+}
+
+fn inspector(s: &mut Studio, key: KeyEvent, ctrl: bool) {
+    s.message = None;
+    let has_sound = s.engine.has_sound();
+    let Some(ins) = s.inspector.as_mut() else {
+        s.mode = Mode::Normal;
+        return;
+    };
+    let n = ins.panel.controls().len();
+    let panel_index = Panel::ALL.iter().position(|&p| p == ins.panel).unwrap_or(0);
+    let set_panel = |ins: &mut super::inspector::Inspector, i: usize| {
+        ins.panel = Panel::ALL[i % Panel::ALL.len()];
+        ins.row = 0;
+    };
+    match key.code {
+        KeyCode::Char('r') if ctrl => {
+            s.redo();
+            after_history(s);
+        }
+        _ if ctrl => {}
+        KeyCode::Esc | KeyCode::Char('q') => s.close_inspector(),
+        KeyCode::Tab => set_panel(ins, panel_index + 1),
+        KeyCode::BackTab => set_panel(ins, panel_index + Panel::ALL.len() - 1),
+        KeyCode::Char(c @ '1'..='3') => set_panel(ins, c as usize - '1' as usize),
+        KeyCode::Char('j') | KeyCode::Down => {
+            ins.row = (ins.row + 1).min(n - 1);
+            s.last_merge = None;
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            ins.row = ins.row.saturating_sub(1);
+            s.last_merge = None;
+        }
+        KeyCode::Char('h') | KeyCode::Left => s.inspector_adjust(-1.0),
+        KeyCode::Char('l') | KeyCode::Right => s.inspector_adjust(1.0),
+        KeyCode::Enter => s.inspector_apply(),
+        KeyCode::Char(' ') => {
+            if !has_sound {
+                s.say(
+                    "No sound device, so there is nothing to hear. Changes still apply.",
+                    crate::app::Level::Warn,
+                );
+                return;
+            }
+            ins.preview = !ins.preview;
+            s.refresh_preview();
+        }
+        KeyCode::Char('u') => {
+            s.undo();
+            after_history(s);
+        }
+        _ => {}
+    }
+}
+
+/// After undo/redo in the inspector: close it if its clip is gone, else
+/// hear the change.
+fn after_history(s: &mut Studio) {
+    let id = s.inspector.as_ref().map(|i| i.clip);
+    if id.is_some_and(|id| s.song().clip(id).is_none()) {
+        s.close_inspector();
+    } else {
+        s.refresh_preview();
     }
 }
 

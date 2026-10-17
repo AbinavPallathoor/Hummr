@@ -9,6 +9,7 @@ pub mod engine;
 #[doc(hidden)]
 pub mod fixture;
 pub mod import;
+pub mod inspector;
 pub mod keys;
 pub mod peaks;
 pub mod record;
@@ -38,6 +39,8 @@ pub enum Mode {
     Recording,
     /// Picking a sample to import.
     Import(import::Picker),
+    /// The clip inspector (see `Studio::inspector`).
+    Inspector,
 }
 
 /// One visible row: a track's lane.
@@ -104,6 +107,10 @@ pub struct Studio {
     pub peaks: peaks::PeakCache,
     pub clipboard: Option<Clip>,
     pub recording: Option<record::Recording>,
+    pub inspector: Option<inspector::Inspector>,
+    /// Label of the last edit made with `edit_merge`, so repeated slider
+    /// steps become one undo step.
+    pub(crate) last_merge: Option<String>,
     /// A clip to highlight briefly (id, clock when added).
     pub flash: Option<(u64, f64)>,
     pub engine: engine::Engine,
@@ -147,6 +154,8 @@ impl Studio {
             peaks: peaks::PeakCache::default(),
             clipboard: None,
             recording: None,
+            inspector: None,
+            last_merge: None,
             flash: None,
             engine: if opts.audio {
                 engine::Engine::open()
@@ -221,7 +230,23 @@ impl Studio {
             self.history.record(label, before);
             self.touch();
         }
+        self.last_merge = None;
         r
+    }
+
+    /// Like [`Studio::edit`], but repeated edits with the same label in a
+    /// row (slider steps) are undone together.
+    pub fn edit_merge(&mut self, label: &str, f: impl FnOnce(&mut Song)) {
+        if self.last_merge.as_deref() == Some(label) {
+            let before = self.project.song.clone();
+            f(&mut self.project.song);
+            if self.project.song != before {
+                self.touch();
+            }
+        } else {
+            self.edit(label, f);
+            self.last_merge = Some(label.to_string());
+        }
     }
 
     /// Marks the song changed (for the engine and the unsaved warning).

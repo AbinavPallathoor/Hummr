@@ -45,6 +45,30 @@ struct Job {
     rate: u32,
 }
 
+/// A clip to loop on its own (the inspector's preview).
+struct PreviewJob {
+    generation: u64,
+    song: Arc<Song>,
+    bank: SourceBank,
+    rate: u32,
+}
+
+enum Work {
+    Track(Job),
+    Preview(PreviewJob),
+}
+
+struct PreviewDone {
+    generation: u64,
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
+
+enum Out {
+    Track(Done),
+    Preview(PreviewDone),
+}
+
 struct Done {
     index: usize,
     key: TrackKey,
@@ -63,8 +87,8 @@ struct Slot {
 /// Plays the song. Without a sound device (or in tests) it only keeps time.
 pub struct Engine {
     player: Option<Player>,
-    jobs: Option<Sender<Job>>,
-    done: Option<Receiver<Done>>,
+    jobs: Option<Sender<Work>>,
+    done: Option<Receiver<Out>>,
     slots: Vec<Slot>,
     rate: u32,
     /// Why there is no sound, if there isn't.
@@ -73,48 +97,70 @@ pub struct Engine {
     sim_pos: f64,
     sim_playing: bool,
     sim_end: f64,
+    /// While previewing a clip, the song's tracks are put aside.
+    previewing: bool,
+    preview_generation: u64,
+    preview_ready: bool,
+}
+
+fn to_rate(stereo: hummr_core::project::render::Stereo, rate: u32) -> (Vec<f32>, Vec<f32>) {
+    if rate == PROJECT_RATE {
+        (stereo.left, stereo.right)
+    } else {
+        (
+            resample(&stereo.left, PROJECT_RATE, rate),
+            resample(&stereo.right, PROJECT_RATE, rate),
+        )
+    }
 }
 
 /// Work done on the render thread, with one clip cache per track id.
-fn worker(jobs: Receiver<Job>, done: Sender<Done>) {
+fn worker(jobs: Receiver<Work>, done: Sender<Out>) {
     let mut caches: HashMap<u64, ClipCache> = HashMap::new();
-    while let Ok(mut job) = jobs.recv() {
-        // Skip work that a newer job for the same track replaces.
-        let mut later = Vec::new();
-        while let Ok(next) = jobs.try_recv() {
-            later.push(next);
+    let mut preview_cache = ClipCache::default();
+    while let Ok(first) = jobs.recv() {
+        // Skip work that newer work replaces (same track, or any preview).
+        let mut queue: Vec<Work> = Vec::new();
+        for w in std::iter::once(first).chain(std::iter::from_fn(|| jobs.try_recv().ok())) {
+            queue.retain(|q| match (q, &w) {
+                (Work::Track(a), Work::Track(b)) => a.index != b.index,
+                (Work::Preview(_), Work::Preview(_)) => false,
+                _ => true,
+            });
+            queue.push(w);
         }
-        let mut queue = Vec::new();
-        for j in std::iter::once(job).chain(later) {
-            queue.retain(|q: &Job| q.index != j.index);
-            queue.push(j);
-        }
-        for j in queue {
-            job = j;
-            let song = &job.song;
-            let id = song.tracks[job.index].id;
-            let cache = caches.entry(id).or_default();
-            let stereo = render_track_cached(song, job.index, &job.bank, cache);
-            let clips = song.tracks[job.index]
-                .clips
-                .iter()
-                .map(|c| (c.clone(), song.bpm, cache.get(song, c, &job.bank)))
-                .collect();
-            cache.sweep();
-            let (left, right) = if job.rate == PROJECT_RATE {
-                (stereo.left, stereo.right)
-            } else {
-                (
-                    resample(&stereo.left, PROJECT_RATE, job.rate),
-                    resample(&stereo.right, PROJECT_RATE, job.rate),
-                )
-            };
-            let msg = Done {
-                index: job.index,
-                key: job.key,
-                left,
-                right,
-                clips,
+        for w in queue {
+            let msg = match w {
+                Work::Track(job) => {
+                    let song = &job.song;
+                    let id = song.tracks[job.index].id;
+                    let cache = caches.entry(id).or_default();
+                    let stereo = render_track_cached(song, job.index, &job.bank, cache);
+                    let clips = song.tracks[job.index]
+                        .clips
+                        .iter()
+                        .map(|c| (c.clone(), song.bpm, cache.get(song, c, &job.bank)))
+                        .collect();
+                    cache.sweep();
+                    let (left, right) = to_rate(stereo, job.rate);
+                    Out::Track(Done {
+                        index: job.index,
+                        key: job.key,
+                        left,
+                        right,
+                        clips,
+                    })
+                }
+                Work::Preview(job) => {
+                    let stereo = render_track_cached(&job.song, 0, &job.bank, &mut preview_cache);
+                    preview_cache.sweep();
+                    let (left, right) = to_rate(stereo, job.rate);
+                    Out::Preview(PreviewDone {
+                        generation: job.generation,
+                        left,
+                        right,
+                    })
+                }
             };
             if done.send(msg).is_err() {
                 return;
@@ -174,6 +220,9 @@ impl Engine {
             sim_pos: 0.0,
             sim_playing: false,
             sim_end: 0.0,
+            previewing: false,
+            preview_generation: 0,
+            preview_ready: false,
         }
     }
 
@@ -211,6 +260,10 @@ impl Engine {
             }
         }
         self.slots.resize_with(n, Slot::default);
+        if self.previewing {
+            // Caught up when the preview ends.
+            return;
+        }
         let Some(jobs) = &self.jobs else {
             return;
         };
@@ -219,13 +272,13 @@ impl Engine {
             let key = TrackKey::of(song, i);
             if self.slots[i].key.as_ref() != Some(&key) {
                 let song_arc = shared.get_or_insert_with(|| Arc::new(song.clone()));
-                let _ = jobs.send(Job {
+                let _ = jobs.send(Work::Track(Job {
                     index: i,
                     key: key.clone(),
                     song: Arc::clone(song_arc),
                     bank: bank.clone(),
                     rate: self.rate,
-                });
+                }));
                 self.slots[i] = Slot {
                     key: Some(key),
                     ready: false,
@@ -244,7 +297,37 @@ impl Engine {
         let Some(done) = &self.done else {
             return clips;
         };
-        while let Ok(d) = done.try_recv() {
+        while let Ok(out) = done.try_recv() {
+            let d = match out {
+                Out::Track(d) => d,
+                Out::Preview(p) => {
+                    if self.previewing && p.generation == self.preview_generation {
+                        self.preview_ready = true;
+                        if let Some(player) = &self.player {
+                            let len = p.left.len().max(1);
+                            let pos = if player.is_playing() {
+                                player.position() % len
+                            } else {
+                                0
+                            };
+                            player.set_tracks(vec![PlayTrack {
+                                samples: p.left,
+                                gain: 1.0,
+                                pan: 0.0,
+                                muted: false,
+                                right: Some(p.right),
+                            }]);
+                            player.set_looping(true);
+                            player.play_from(pos);
+                        }
+                    }
+                    continue;
+                }
+            };
+            if self.previewing {
+                // The song's tracks are rendered again after the preview.
+                continue;
+            }
             let Some(slot) = self.slots.get_mut(d.index) else {
                 continue;
             };
@@ -268,6 +351,64 @@ impl Engine {
             clips.extend(d.clips);
         }
         clips
+    }
+
+    /// Loops `clip` on its own (rendered in the background). Changes to
+    /// the clip call this again; the loop carries on from where it was.
+    pub fn preview(&mut self, song: &Song, clip: &Clip, bank: &SourceBank) {
+        if self.jobs.is_none() {
+            return;
+        }
+        let Some((t, _)) = song.find_clip(clip.id) else {
+            return;
+        };
+        let mut solo = song.clone();
+        let mut track = song.tracks[t].clone();
+        track.fx = Default::default();
+        let mut c = clip.clone();
+        c.start_beat = 0.0;
+        track.clips = vec![c];
+        solo.tracks = vec![track];
+        if !self.previewing {
+            self.stop();
+        }
+        self.previewing = true;
+        self.preview_ready = false;
+        self.preview_generation += 1;
+        let Some(jobs) = &self.jobs else { return };
+        let _ = jobs.send(Work::Preview(PreviewJob {
+            generation: self.preview_generation,
+            song: Arc::new(solo),
+            bank: bank.clone(),
+            rate: self.rate,
+        }));
+    }
+
+    /// Stops the preview; the song's tracks are rendered again at the next
+    /// [`Engine::sync`].
+    pub fn end_preview(&mut self) {
+        if !self.previewing {
+            return;
+        }
+        self.previewing = false;
+        self.preview_ready = false;
+        if let Some(p) = &self.player {
+            p.stop();
+            p.set_looping(false);
+            p.truncate_tracks(0);
+        }
+        for slot in &mut self.slots {
+            *slot = Slot::default();
+        }
+    }
+
+    pub fn is_previewing(&self) -> bool {
+        self.previewing
+    }
+
+    /// Whether the preview loop has been rendered.
+    pub fn preview_ready(&self) -> bool {
+        self.preview_ready
     }
 
     /// Starts playing at `beat`.
@@ -376,5 +517,38 @@ mod tests {
         e.sync(&song, &p.sources);
         assert!(!e.is_ready());
         assert_eq!(e.slots.iter().filter(|s| !s.ready).count(), 1);
+    }
+
+    #[test]
+    fn preview_loops_one_clip_and_hands_back_to_the_song() {
+        let p = crate::studio::fixture::mockup_project();
+        let song = p.song.clone();
+        let mut e = Engine::render_only();
+        e.sync(&song, &p.sources);
+        let clip = song.tracks[2].clips[0].clone();
+        e.preview(&song, &clip, &p.sources);
+        assert!(e.is_previewing());
+        let t0 = Instant::now();
+        while !e.preview_ready() && t0.elapsed() < Duration::from_secs(120) {
+            // Track renders finishing now are dropped, not played.
+            assert!(e.poll(&song).is_empty());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(e.preview_ready());
+        // A newer change replaces the older preview.
+        let mut louder = clip.clone();
+        louder.gain_db = 6.0;
+        e.preview(&song, &louder, &p.sources);
+        assert!(!e.preview_ready());
+        e.end_preview();
+        assert!(!e.is_previewing());
+        e.sync(&song, &p.sources);
+        assert!(!e.is_ready(), "every track renders again after a preview");
+        let t0 = Instant::now();
+        while !e.is_ready() && t0.elapsed() < Duration::from_secs(120) {
+            e.poll(&song);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(e.is_ready());
     }
 }

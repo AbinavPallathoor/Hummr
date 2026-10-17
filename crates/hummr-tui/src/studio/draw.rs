@@ -120,6 +120,7 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
             let p = p.clone();
             draw_import(f, area, &p);
         }
+        Mode::Inspector => draw_inspector(f, area, s),
         _ => {}
     }
 }
@@ -426,6 +427,9 @@ fn draw_status(buf: &mut Buffer, s: &Studio, r: Rect) {
 
 pub const HINTS: &str = "hjkl move  HJKL move clip  space play  r rec  s split  enter edit  ? help";
 
+pub const INSPECTOR_HINTS: &str =
+    "tab panel  j/k choose  h/l change  enter apply  space loop  u undo  esc close";
+
 fn draw_bottom(buf: &mut Buffer, s: &Studio, r: Rect) {
     let max = r.x + r.width;
     match &s.mode {
@@ -439,6 +443,14 @@ fn draw_bottom(buf: &mut Buffer, s: &Studio, r: Rect) {
                 Style::default().fg(TEXT),
             );
         }
+        Mode::Inspector if s.message.is_none() => put(
+            buf,
+            r.x + 1,
+            r.y,
+            INSPECTOR_HINTS,
+            max,
+            Style::default().fg(DIM),
+        ),
         _ => match &s.message {
             Some((m, level)) => {
                 let color = match level {
@@ -586,4 +598,129 @@ fn draw_import(f: &mut Frame, area: Rect, p: &super::import::Picker) {
         let text = format!("{} {}", if sel { "▸" } else { " " }, item.label());
         put(buf, r.x + 2, y, &text, r.x + r.width - 2, style);
     }
+}
+
+fn draw_inspector(f: &mut Frame, area: Rect, s: &Studio) {
+    use super::inspector::{Panel, describe};
+    let Some(ins) = &s.inspector else { return };
+    let Some(clip) = s.song().clip(ins.clip) else {
+        return;
+    };
+    // Tall enough for the longest panel, centred.
+    let w = (area.width * 7 / 10).max(64).min(area.width);
+    let h = 20.min(area.height);
+    let r = Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 2,
+        w,
+        h,
+    );
+    let buf = f.buffer_mut();
+    for y in r.y..r.y + r.height {
+        for x in r.x..r.x + r.width {
+            buf[(x, y)].set_char(' ').set_bg(BG).set_fg(TEXT);
+        }
+    }
+    let max = r.x + r.width - 1;
+    let border = Style::default().fg(ACCENT);
+    hline(buf, r.x, r.x + r.width, r.y, '─', border);
+    hline(buf, r.x, r.x + r.width, r.y + r.height - 1, '─', border);
+    for y in r.y..r.y + r.height {
+        buf[(r.x, y)].set_char('│').set_style(border);
+        buf[(max, y)].set_char('│').set_style(border);
+    }
+    for (x, y, c) in [
+        (r.x, r.y, '╭'),
+        (max, r.y, '╮'),
+        (r.x, r.y + r.height - 1, '╰'),
+        (max, r.y + r.height - 1, '╯'),
+    ] {
+        buf[(x, y)].set_char(c).set_style(border);
+    }
+    put(
+        buf,
+        r.x + 2,
+        r.y,
+        &format!(" {} · Esc to close ", clip_label(clip)),
+        max,
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    );
+    let preview = if !s.engine.has_sound() {
+        "no sound device"
+    } else if ins.preview {
+        "▶ looping (space stops)"
+    } else {
+        "space: loop it"
+    };
+    let pw = preview.chars().count() as u16;
+    put(
+        buf,
+        max.saturating_sub(pw + 2),
+        r.y,
+        preview,
+        max,
+        Style::default().fg(if ins.preview { GREEN } else { DIM }),
+    );
+    // Panel tabs.
+    let mut x = r.x + 2;
+    for (i, p) in Panel::ALL.iter().enumerate() {
+        let text = format!(" {} {} ", i + 1, p.title());
+        let style = if *p == ins.panel {
+            Style::default()
+                .fg(BG)
+                .bg(ACCENT)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(DIM)
+        };
+        put(buf, x, r.y + 1, &text, max, style);
+        x += text.chars().count() as u16 + 1;
+    }
+    // Controls, scrolled to keep the selected one in view.
+    let list_h = usize::from(r.height.saturating_sub(5));
+    let controls = ins.panel.controls();
+    let first = ins.row.saturating_sub(list_h.saturating_sub(1));
+    let label_w = 32.min(r.width / 2);
+    for (i, ctl) in controls.iter().enumerate().skip(first).take(list_h) {
+        let y = r.y + 3 + (i - first) as u16;
+        let (label, value, _) = describe(s, ins, *ctl);
+        let sel = i == ins.row;
+        let style = if sel {
+            Style::default().fg(BG).bg(ACCENT)
+        } else {
+            Style::default().fg(TEXT)
+        };
+        if sel {
+            hline(buf, r.x + 1, max, y, ' ', style);
+        }
+        put(
+            buf,
+            r.x + 2,
+            y,
+            &format!("{} {label}", if sel { "▸" } else { " " }),
+            max,
+            style,
+        );
+        put(
+            buf,
+            r.x + 3 + label_w,
+            y,
+            &value,
+            max,
+            if sel {
+                style
+            } else {
+                Style::default().fg(YELLOW)
+            },
+        );
+    }
+    let (_, _, hint) = describe(s, ins, ins.control());
+    put(
+        buf,
+        r.x + 2,
+        r.y + r.height - 2,
+        hint,
+        max,
+        Style::default().fg(DIM),
+    );
 }

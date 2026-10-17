@@ -328,6 +328,8 @@ struct Mix {
     preroll: usize,
     /// Frames since playback started (the metronome's clock).
     click_pos: usize,
+    /// Start again from the top at the end (for previews).
+    looping: bool,
     playing: bool,
     peaks: Vec<f32>,
     master_peak: f32,
@@ -418,6 +420,11 @@ impl Player {
             m.tracks[index] = track;
             m.peaks.resize(m.tracks.len(), 0.0);
         });
+    }
+
+    /// Loops the tracks (back to the start at the end) or not.
+    pub fn set_looping(&self, on: bool) {
+        self.with_mix(|m| m.looping = on);
     }
 
     /// Drops tracks from `len` on.
@@ -575,7 +582,11 @@ where
                     }
                 }
                 if mix.pos >= len && !endless && mix.preroll == 0 {
-                    mix.playing = false;
+                    if mix.looping && len > 0 {
+                        mix.pos = 0;
+                    } else {
+                        mix.playing = false;
+                    }
                 }
             },
             move |e| log_stream_error(e, &err_shared.error),

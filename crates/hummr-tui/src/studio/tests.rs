@@ -443,3 +443,162 @@ fn a_recorded_take_lands_at_the_playhead_with_the_song_tempo() {
     assert_eq!(src.recorded_bpm, Some(96.0));
     assert_eq!(s.selected_clip_id(), Some(id));
 }
+
+fn inspected(s: &Studio) -> Clip {
+    s.song()
+        .clip(s.inspector.as_ref().unwrap().clip)
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn enter_opens_the_inspector_and_esc_closes_it() {
+    let mut s = studio();
+    s.playhead = 40.0;
+    press(&mut s, "<cr>");
+    assert_eq!(s.mode, Mode::Normal);
+    assert!(
+        s.message
+            .clone()
+            .unwrap()
+            .0
+            .contains("No clip under the playhead")
+    );
+    s.playhead = 0.0;
+    press(&mut s, "<cr>");
+    assert_eq!(s.mode, Mode::Inspector);
+    assert_eq!(inspected(&s).name, "beatbox");
+    let text = screen(&mut s, 100, 30);
+    assert!(text.contains("Turn into"), "{text}");
+    assert!(text.contains("Drums"), "{text}");
+    press(&mut s, "<tab>");
+    assert_eq!(
+        s.inspector.as_ref().unwrap().panel,
+        inspector::Panel::Effects
+    );
+    press(&mut s, "3");
+    assert_eq!(s.inspector.as_ref().unwrap().panel, inspector::Panel::Fix);
+    press(&mut s, "<esc>");
+    assert_eq!(s.mode, Mode::Normal);
+    assert!(s.inspector.is_none());
+}
+
+#[test]
+fn inspector_100x30() {
+    let mut s = studio();
+    press(&mut s, "<cr>2jj");
+    insta::assert_snapshot!(screen(&mut s, 100, 30));
+}
+
+#[test]
+fn slider_steps_are_one_undo_step() {
+    let mut s = studio();
+    press(&mut s, "<cr>2jjj"); // Effects → Reverb
+    assert_eq!(
+        s.inspector.as_ref().unwrap().control(),
+        inspector::Ctl::Reverb
+    );
+    press(&mut s, "llll");
+    assert!((inspected(&s).fx.reverb - 0.4).abs() < 1e-9);
+    press(&mut s, "h");
+    assert!((inspected(&s).fx.reverb - 0.3).abs() < 1e-9);
+    // Another control is its own step.
+    press(&mut s, "jll"); // Echo
+    assert!((inspected(&s).fx.echo - 0.2).abs() < 1e-9);
+    press(&mut s, "u");
+    assert_eq!(inspected(&s).fx.echo, 0.0);
+    assert!((inspected(&s).fx.reverb - 0.3).abs() < 1e-9);
+    press(&mut s, "u");
+    assert_eq!(inspected(&s).fx.reverb, 0.0);
+    assert_eq!(s.mode, Mode::Inspector);
+    press(&mut s, "<c-r>");
+    assert!((inspected(&s).fx.reverb - 0.3).abs() < 1e-9);
+    // Presets cycle and set an amount.
+    press(&mut s, "kkkkl"); // Preset
+    let fx = inspected(&s).fx;
+    assert!(fx.preset.is_some());
+    assert!(fx.amount > 0.0);
+}
+
+#[test]
+fn turn_into_drums_and_back() {
+    let mut s = studio();
+    press(&mut s, "<cr>jjj<cr>"); // Drums
+    match &inspected(&s).kind {
+        ClipKind::Notes { voice, notes, .. } => {
+            assert_eq!(*voice, Voice::Drums);
+            assert!(notes.len() >= 8, "{} hits", notes.len());
+        }
+        k => panic!("not drums: {k:?}"),
+    }
+    let text = screen(&mut s, 100, 30);
+    assert!(text.contains("● now"), "{text}");
+    press(&mut s, "j<cr>"); // None
+    assert_eq!(inspected(&s).kind, ClipKind::Audio);
+    press(&mut s, "uu");
+    assert_eq!(inspected(&s).kind, ClipKind::Audio);
+    // Notes on a chosen instrument: h/l picks it, Enter applies it.
+    press(&mut s, "<esc>");
+    s.row = 3; // hum take 2 (audio)
+    s.playhead = 11.0;
+    press(&mut s, "<cr>jl<cr>");
+    match &inspected(&s).kind {
+        ClipKind::Notes {
+            voice: Voice::Instrument { program },
+            ..
+        } => assert_eq!(*program, inspector::INSTRUMENTS[1]),
+        k => panic!("not notes: {k:?}"),
+    }
+}
+
+#[test]
+fn fix_panel_cleans_and_matches_tempo() {
+    let mut s = studio();
+    s.edit("tempo", |song| song.bpm = 120.0);
+    press(&mut s, "<cr>3ll"); // Clean noise
+    assert!((inspected(&s).clean - 0.2).abs() < 1e-9);
+    press(&mut s, "jl"); // noise sample from 0.1 s
+    assert_eq!(inspected(&s).noise_region, Some([0.1, 0.3]));
+    press(&mut s, "h");
+    assert_eq!(inspected(&s).noise_region, None);
+    // Match tempo: the beatbox loop was recorded at 96 BPM.
+    press(&mut s, "jj<cr>");
+    let est = s.inspector.as_ref().unwrap().estimate.clone().unwrap();
+    assert!((est.bpm - 96.0).abs() < 1.0, "heard {}", est.bpm);
+    let clip = inspected(&s);
+    assert!(
+        matches!(clip.kind, ClipKind::Sliced { .. })
+            || clip.speed != 1.0
+            || clip.stretch != hummr_core::project::Stretch::Keep,
+        "{clip:?}"
+    );
+    let end = clip.end_beat(120.0);
+    assert!(
+        (end - 8.0).abs() < 0.05,
+        "8 beats long at 120 BPM, got {end}"
+    );
+}
+
+#[test]
+fn snap_to_key_moves_notes_into_the_key() {
+    let mut s = studio();
+    s.row = 2;
+    s.playhead = 4.0; // hum → piano
+    let id = s.selected_clip_id().unwrap();
+    s.edit("off-key", |song| {
+        if let Some(ClipKind::Notes { notes, .. }) = song.clip_mut(id).map(|c| &mut c.kind) {
+            notes[0].pitch = 61; // C# is not in A minor
+        }
+    });
+    press(&mut s, "<cr>3jjjjj"); // Snap to key
+    assert_eq!(
+        s.inspector.as_ref().unwrap().control(),
+        inspector::Ctl::SnapKey
+    );
+    press(&mut s, "<cr>");
+    assert!(s.message.clone().unwrap().0.contains("Moved 1 note"));
+    let ClipKind::Notes { notes, .. } = &inspected(&s).kind else {
+        panic!()
+    };
+    assert!(notes[0].pitch == 60 || notes[0].pitch == 62);
+}
