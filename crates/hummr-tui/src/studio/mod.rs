@@ -50,6 +50,15 @@ pub enum Mode {
     TempoPrompt(tempo_prompt::TempoPrompt),
 }
 
+/// Effects that replace one another (one of each kind runs at a time).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StudioFx {
+    #[default]
+    Overlay,
+    Flash,
+    Message,
+}
+
 /// One visible row: a track's lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Row {
@@ -142,6 +151,13 @@ pub struct Studio {
     /// Per-track and master meter levels (linear peaks, falling).
     pub meters: Vec<f32>,
     pub master_meter: f32,
+    /// Running animations (none when `animations` is off).
+    pub effects: tachyonfx::EffectManager<StudioFx>,
+    /// Time since the previous frame, for the animations.
+    pub frame_dt: Duration,
+    /// The overlay and message seen at the last draw (to start fades).
+    fx_overlay: Option<std::mem::Discriminant<Mode>>,
+    fx_message: Option<String>,
 }
 
 /// Options for opening the timeline.
@@ -192,6 +208,10 @@ impl Studio {
             show_mixer: false,
             meters: Vec::new(),
             master_meter: 0.0,
+            effects: Default::default(),
+            frame_dt: Duration::ZERO,
+            fx_overlay: None,
+            fx_message: None,
         };
         s.saved = s.project.song.clone();
         if let Some(p) = s.engine.problem.clone() {
@@ -215,6 +235,7 @@ impl Studio {
     /// Per-frame work: sync and poll the engine, follow the playhead.
     pub fn tick(&mut self, dt: Duration) {
         self.clock += dt.as_secs_f64();
+        self.frame_dt = dt;
         if self.synced != Some(self.version) {
             self.engine.sync(&self.project.song, &self.project.sources);
             self.synced = Some(self.version);
@@ -245,6 +266,7 @@ impl Studio {
     /// Whether the screen needs redrawing every frame.
     pub fn is_live(&self) -> bool {
         self.playing
+            || self.effects.is_running()
             || self.recording.is_some()
             || !self.engine.is_ready()
             || (self.show_mixer
@@ -443,7 +465,13 @@ impl Studio {
         self.row_scroll = self.row_scroll.min(n.saturating_sub(vis));
         let cols = f64::from(self.lane_cols.max(1));
         let col = self.view.beat_to_col(self.playhead);
-        if col < 0.0 || col >= cols - 1.0 {
+        if self.playing && self.animations && (col < 0.0 || col > cols / 3.0) {
+            // Scroll smoothly, a column at a time, keeping the playhead a
+            // third of the way in.
+            let cpb = self.view.cols_per_beat;
+            let start = self.playhead - (cols / 3.0).floor() / cpb;
+            self.view.start_beat = ((start * cpb).round() / cpb).max(0.0);
+        } else if col < 0.0 || col >= cols - 1.0 {
             // Page so the playhead sits a quarter of the way in.
             let start = self.playhead - cols * 0.25 / self.view.cols_per_beat;
             let bar = self.song().bar_beats();

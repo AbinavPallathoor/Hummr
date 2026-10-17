@@ -913,3 +913,78 @@ fn mixer_100x30() {
     s.master_meter = 0.95;
     insta::assert_snapshot!(screen(&mut s, 100, 30));
 }
+
+#[test]
+fn animations_run_only_when_on() {
+    let mut s = studio();
+    s.animations = true;
+    screen(&mut s, 100, 30);
+    assert!(!s.effects.is_running());
+    // A new clip flashes.
+    s.playhead = 20.0;
+    press(&mut s, "jjjji<cr>");
+    assert!(s.flash.is_some());
+    screen(&mut s, 100, 30);
+    assert!(s.effects.is_running());
+    assert!(s.flash.is_none(), "the flash starts once");
+    assert!(s.is_live(), "redraws while animating");
+    s.tick(std::time::Duration::from_secs(1));
+    screen(&mut s, 100, 30);
+    s.tick(std::time::Duration::from_millis(20));
+    screen(&mut s, 100, 30);
+    assert!(!s.effects.is_running(), "effects end");
+    // Opening an overlay fades it in.
+    s.playhead = 0.0;
+    s.row = 0;
+    press(&mut s, "<cr>");
+    screen(&mut s, 100, 30);
+    assert!(s.effects.is_running());
+    // :anim off stops everything and starts nothing.
+    press(&mut s, "<esc>:anim off<cr>");
+    screen(&mut s, 100, 30);
+    assert!(!s.effects.is_running());
+    press(&mut s, "<cr>");
+    screen(&mut s, 100, 30);
+    assert!(!s.effects.is_running());
+    s.playhead = 30.0;
+    press(&mut s, "<esc>i<cr>");
+    assert!(s.flash.is_none());
+}
+
+#[test]
+fn the_view_follows_the_playhead_smoothly_when_animated() {
+    for animated in [true, false] {
+        let mut s = studio();
+        s.animations = animated;
+        s.edit("long", |song| {
+            let c = song.tracks[0].clips[0].clone();
+            for k in 1..8 {
+                let mut c = c.clone();
+                c.start_beat = 16.0 * f64::from(k);
+                song.insert_clip(0, c);
+            }
+        });
+        screen(&mut s, 100, 30);
+        let cols = f64::from(s.lane_cols);
+        press(&mut s, " ");
+        let mut cols_seen = Vec::new();
+        for _ in 0..600 {
+            s.tick(std::time::Duration::from_millis(50));
+            screen(&mut s, 100, 30);
+            cols_seen.push(s.view.beat_to_col(s.playhead));
+        }
+        assert!(s.view.start_beat > 0.0, "the view moved");
+        let late = &cols_seen[200..];
+        if animated {
+            // Once a third of the way in, the playhead stays there.
+            for c in late {
+                assert!((c - (cols / 3.0).floor()).abs() <= 1.0, "col {c} of {cols}");
+            }
+        } else {
+            // Paging: the playhead sweeps across the view.
+            let spread = late.iter().cloned().fold(f64::MIN, f64::max)
+                - late.iter().cloned().fold(f64::MAX, f64::min);
+            assert!(spread > cols / 2.0, "spread {spread}");
+        }
+    }
+}

@@ -111,7 +111,7 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
     let lanes = Rect::new(sep_x + 1, y0 + 3, s.lane_cols, h - CHROME_H + 2);
     draw_ruler(buf, s, Rect::new(lanes.x, y0 + 3, lanes.width, 2));
     let rows_area = Rect::new(x0 + 1, y0 + 6, w - 2, h - CHROME_H - mixer_h);
-    draw_rows(buf, s, rows_area, sep_x);
+    let flash = draw_rows(buf, s, rows_area, sep_x);
     if s.show_mixer {
         let r = Rect::new(x0, y0 + 6 + rows_area.height, w, MIXER_H);
         draw_mixer(buf, s, r, sep_x);
@@ -130,6 +130,7 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
         Mode::TempoPrompt(p) => draw_tempo_prompt(f, area, s, p),
         _ => {}
     }
+    animate(f, s, flash, Rect::new(x0 + 1, y0 + h - 2, w - 2, 1));
 }
 
 fn draw_title(buf: &mut Buffer, s: &Studio, r: Rect) {
@@ -201,7 +202,10 @@ fn draw_ruler(buf: &mut Buffer, s: &Studio, r: Rect) {
     }
 }
 
-fn draw_rows(buf: &mut Buffer, s: &mut Studio, r: Rect, sep_x: u16) {
+/// Draws the track rows; returns the box of the clip to flash, if visible.
+fn draw_rows(buf: &mut Buffer, s: &mut Studio, r: Rect, sep_x: u16) -> Option<Rect> {
+    let mut flash_rect = None;
+    let flash_id = s.flash.map(|(id, _)| id);
     let rows = s.rows();
     if rows.is_empty() {
         let msg = "No tracks yet. Press n for a new track, r to record, or i to import a sample.";
@@ -214,7 +218,7 @@ fn draw_rows(buf: &mut Buffer, s: &mut Studio, r: Rect, sep_x: u16) {
             r.x + r.width,
             Style::default().fg(DIM),
         );
-        return;
+        return None;
     }
     let song = s.project.song.clone();
     let selected = s.selected_clip_id();
@@ -275,6 +279,11 @@ fn draw_rows(buf: &mut Buffer, s: &mut Studio, r: Rect, sep_x: u16) {
             let b = (s.view.beat_to_col(clip.end_beat(song.bpm)).round() as i64 - 1).max(a);
             if b < 0 || a >= cols {
                 continue;
+            }
+            if flash_id == Some(clip.id) {
+                let x0 = a.max(0) as u16;
+                let x1 = b.min(cols - 1) as u16;
+                flash_rect = Some(Rect::new(lane_x + x0, y, x1 - x0 + 1, LANE_H));
             }
             let sel = selected == Some(clip.id);
             let base = if audible {
@@ -344,9 +353,9 @@ fn draw_rows(buf: &mut Buffer, s: &mut Studio, r: Rect, sep_x: u16) {
             }
         }
     }
+    flash_rect
 }
 
-/// The take being recorded: a red box growing from where it started.
 fn draw_recording(buf: &mut Buffer, s: &Studio, r: Rect, lane_x: u16) {
     let Some(rec) = &s.recording else { return };
     let rows = s.rows();
@@ -539,8 +548,30 @@ pub const HELP: &[(&str, &str)] = &[
     (":anim on|off", "animations"),
 ];
 
+fn centred(area: Rect, w: u16, h: u16) -> Rect {
+    let (w, h) = (w.min(area.width), h.min(area.height));
+    Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 2,
+        w,
+        h,
+    )
+}
+
+/// Where the overlay for `mode` goes, if it has one.
+pub fn overlay_rect(mode: &Mode, area: Rect) -> Option<Rect> {
+    match mode {
+        Mode::Help => Some(crate::ui::centered(area, 92, 92, 76, 20)),
+        Mode::Import(_) => Some(crate::ui::centered(area, 60, 70, 50, 14)),
+        // Tall enough for the longest panel.
+        Mode::Inspector => Some(centred(area, (area.width * 7 / 10).max(64), 20)),
+        Mode::TempoPrompt(_) => Some(centred(area, 72, 11)),
+        _ => None,
+    }
+}
+
 fn draw_help(f: &mut Frame, area: Rect) {
-    let r = crate::ui::centered(area, 92, 92, 76, 20);
+    let r = overlay_rect(&Mode::Help, area).unwrap_or(area);
     let buf = f.buffer_mut();
     for y in r.y..r.y + r.height {
         for x in r.x..r.x + r.width {
@@ -584,7 +615,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
 }
 
 fn draw_import(f: &mut Frame, area: Rect, p: &super::import::Picker) {
-    let r = crate::ui::centered(area, 60, 70, 50, 14);
+    let r = overlay_rect(&Mode::Import(p.clone()), area).unwrap_or(area);
     let buf = f.buffer_mut();
     for y in r.y..r.y + r.height {
         for x in r.x..r.x + r.width {
@@ -623,15 +654,7 @@ fn draw_inspector(f: &mut Frame, area: Rect, s: &Studio) {
     let Some(clip) = s.song().clip(ins.clip) else {
         return;
     };
-    // Tall enough for the longest panel, centred.
-    let w = (area.width * 7 / 10).max(64).min(area.width);
-    let h = 20.min(area.height);
-    let r = Rect::new(
-        area.x + (area.width - w) / 2,
-        area.y + (area.height - h) / 2,
-        w,
-        h,
-    );
+    let r = overlay_rect(&Mode::Inspector, area).unwrap_or(area);
     let buf = f.buffer_mut();
     for y in r.y..r.y + r.height {
         for x in r.x..r.x + r.width {
@@ -743,14 +766,7 @@ fn draw_inspector(f: &mut Frame, area: Rect, s: &Studio) {
 }
 
 fn draw_tempo_prompt(f: &mut Frame, area: Rect, s: &Studio, p: &super::tempo_prompt::TempoPrompt) {
-    let w = 72.min(area.width);
-    let h = 11.min(area.height);
-    let r = Rect::new(
-        area.x + (area.width - w) / 2,
-        area.y + (area.height - h) / 2,
-        w,
-        h,
-    );
+    let r = overlay_rect(&Mode::TempoPrompt(p.clone()), area).unwrap_or(area);
     let buf = f.buffer_mut();
     for y in r.y..r.y + r.height {
         for x in r.x..r.x + r.width {
@@ -960,4 +976,47 @@ fn draw_mixer(buf: &mut Buffer, s: &Studio, r: Rect, sep_x: u16) {
             );
         }
     }
+}
+
+/// Starts the effects asked for since the last frame and runs them. With
+/// animations off nothing is started and nothing runs.
+fn animate(f: &mut Frame, s: &mut Studio, flash: Option<Rect>, bottom: Rect) {
+    use super::StudioFx;
+    use ratatui::style::Color;
+    use tachyonfx::{Interpolation, fx};
+    let area = f.area();
+    let overlay = overlay_rect(&s.mode, area);
+    let overlay_kind = std::mem::discriminant(&s.mode);
+    let opened = overlay.is_some() && s.fx_overlay != Some(overlay_kind);
+    s.fx_overlay = overlay.map(|_| overlay_kind);
+    let message = s.message.as_ref().map(|(m, _)| m.clone());
+    let new_message = message.is_some() && message != s.fx_message;
+    s.fx_message = message;
+    if !s.animations {
+        s.flash = None;
+        if s.effects.is_running() {
+            s.effects = Default::default();
+        }
+        return;
+    }
+    let ease = Interpolation::QuadOut;
+    if let (true, Some(r)) = (opened, overlay) {
+        s.effects
+            .add_unique_effect(StudioFx::Overlay, fx::coalesce((260, ease)).with_area(r));
+    }
+    if let Some(r) = flash {
+        s.effects.add_unique_effect(
+            StudioFx::Flash,
+            fx::fade_from(Color::White, Color::White, (450, ease)).with_area(r),
+        );
+        s.flash = None;
+    }
+    if new_message {
+        s.effects.add_unique_effect(
+            StudioFx::Message,
+            fx::fade_from_fg(BG, (300, ease)).with_area(bottom),
+        );
+    }
+    s.effects
+        .process_effects(s.frame_dt.into(), f.buffer_mut(), area);
 }

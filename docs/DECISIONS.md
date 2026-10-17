@@ -78,3 +78,4 @@ One line each: decision — alternatives — why.
 - The first clip's tempo is applied as its own undo step after the "add clip" step — merge both — u then undoes just the tempo if the guess was wrong, keeping the clip.
 - The mixer is a 5-line strip area under the tracks (the track rows shrink) — a separate screen — clips and levels stay visible together while playing. The selected strip is the selected track, so moving in either view keeps them in step.
 - Meters show the player's per-track peaks on a −48…0 dB scale with a 24 dB/s fall — RMS meters — peaks are what the callback already measures, and the fall keeps short hits readable.
+- "Smooth playhead" means the view scrolls one column at a time with the playhead held a third of the way in — sub-character playhead glyphs — terminal cells can't show fractions cleanly, and a steady playhead with moving clips is easier to follow than page jumps. With animations off the view pages as before.
