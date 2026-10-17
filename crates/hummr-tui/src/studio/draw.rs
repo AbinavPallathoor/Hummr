@@ -121,6 +121,7 @@ pub fn draw(f: &mut Frame, s: &mut Studio) {
             draw_import(f, area, &p);
         }
         Mode::Inspector => draw_inspector(f, area, s),
+        Mode::TempoPrompt(p) => draw_tempo_prompt(f, area, s, p),
         _ => {}
     }
 }
@@ -720,6 +721,87 @@ fn draw_inspector(f: &mut Frame, area: Rect, s: &Studio) {
         r.x + 2,
         r.y + r.height - 2,
         hint,
+        max,
+        Style::default().fg(DIM),
+    );
+}
+
+fn draw_tempo_prompt(f: &mut Frame, area: Rect, s: &Studio, p: &super::tempo_prompt::TempoPrompt) {
+    let w = 72.min(area.width);
+    let h = 11.min(area.height);
+    let r = Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 2,
+        w,
+        h,
+    );
+    let buf = f.buffer_mut();
+    for y in r.y..r.y + r.height {
+        for x in r.x..r.x + r.width {
+            buf[(x, y)].set_char(' ').set_bg(BG).set_fg(TEXT);
+        }
+    }
+    let max = r.x + r.width - 1;
+    let border = Style::default().fg(ACCENT);
+    hline(buf, r.x, r.x + r.width, r.y, '─', border);
+    hline(buf, r.x, r.x + r.width, r.y + r.height - 1, '─', border);
+    for y in r.y..r.y + r.height {
+        buf[(r.x, y)].set_char('│').set_style(border);
+        buf[(max, y)].set_char('│').set_style(border);
+    }
+    for (x, y, c) in [
+        (r.x, r.y, '╭'),
+        (max, r.y, '╮'),
+        (r.x, r.y + r.height - 1, '╰'),
+        (max, r.y + r.height - 1, '╯'),
+    ] {
+        buf[(x, y)].set_char(c).set_style(border);
+    }
+    put(
+        buf,
+        r.x + 2,
+        r.y,
+        " A different tempo ",
+        max,
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    );
+    let song_bpm = s.song().bpm;
+    put(
+        buf,
+        r.x + 2,
+        r.y + 2,
+        &p.heard(),
+        max,
+        Style::default().fg(TEXT),
+    );
+    put(
+        buf,
+        r.x + 2,
+        r.y + 3,
+        &format!(
+            "The song is {} BPM. What should happen?",
+            hummr_core::beat::fmt_bpm(song_bpm)
+        ),
+        max,
+        Style::default().fg(TEXT),
+    );
+    for (i, (label, what)) in p.choices(song_bpm).iter().enumerate() {
+        let y = r.y + 5 + i as u16;
+        let sel = i == p.sel;
+        let style = if sel {
+            Style::default().fg(BG).bg(ACCENT)
+        } else {
+            Style::default().fg(TEXT)
+        };
+        let text = format!("{} {} {label:<22}", if sel { "▸" } else { " " }, i + 1);
+        put(buf, r.x + 2, y, &text, max, style);
+        put(buf, r.x + 29, y, what, max, Style::default().fg(DIM));
+    }
+    put(
+        buf,
+        r.x + 2,
+        r.y + r.height - 2,
+        "j/k choose · Enter ok · h half · d double the heard tempo · Esc leave",
         max,
         Style::default().fg(DIM),
     );

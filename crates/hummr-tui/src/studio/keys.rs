@@ -41,6 +41,26 @@ pub fn on_key(s: &mut Studio, key: KeyEvent) {
         },
         Mode::Command(text) => command_line(s, key, text),
         Mode::Inspector => inspector(s, key, ctrl),
+        Mode::TempoPrompt(p) => match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                s.mode = Mode::TempoPrompt(super::tempo_prompt::TempoPrompt {
+                    sel: (p.sel + 1).min(2),
+                    ..p
+                });
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                s.mode = Mode::TempoPrompt(super::tempo_prompt::TempoPrompt {
+                    sel: p.sel.saturating_sub(1),
+                    ..p
+                });
+            }
+            KeyCode::Char(c @ '1'..='3') => s.prompt_choose(c as usize - '1' as usize),
+            KeyCode::Char('h') => s.prompt_scale(0.5),
+            KeyCode::Char('d') => s.prompt_scale(2.0),
+            KeyCode::Enter => s.prompt_choose(p.sel),
+            KeyCode::Esc => s.prompt_choose(2),
+            _ => {}
+        },
         Mode::Help => {
             if matches!(
                 key.code,

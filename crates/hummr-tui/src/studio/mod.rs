@@ -14,6 +14,7 @@ pub mod keys;
 pub mod peaks;
 pub mod record;
 pub mod song_edit;
+pub mod tempo_prompt;
 
 use std::time::Duration;
 
@@ -42,6 +43,8 @@ pub enum Mode {
     Import(import::Picker),
     /// The clip inspector (see `Studio::inspector`).
     Inspector,
+    /// A new sample is at another tempo: match, change the song, or leave.
+    TempoPrompt(tempo_prompt::TempoPrompt),
 }
 
 /// One visible row: a track's lane.

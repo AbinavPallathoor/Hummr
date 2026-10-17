@@ -289,6 +289,11 @@ impl Studio {
             .get(src)
             .map_or(0.0, |a| a.duration_seconds());
         let clip = Clip::audio(0, name, src, 0.0, len, at_beat.max(0.0));
+        let first = self.song().tracks.iter().all(|t| t.clips.is_empty());
+        let known_tempo = self
+            .song()
+            .source(src)
+            .is_some_and(|s| s.recorded_bpm.is_some());
         let track = match track.filter(|&t| t < self.song().tracks.len()) {
             Some(t) => t,
             None => self.new_track(None),
@@ -298,6 +303,9 @@ impl Studio {
             .expect("track exists");
         self.follow_clip(id);
         self.flash_clip(id);
+        if !known_tempo {
+            self.check_new_clip_tempo(id, first);
+        }
         id
     }
 

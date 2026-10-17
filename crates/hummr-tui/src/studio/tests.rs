@@ -726,3 +726,129 @@ fn a_tempo_change_re_times_sliced_clips() {
         );
     }
 }
+
+fn groove(bpm: f64, seed: u64) -> hummr_core::AudioBuffer {
+    use hummr_core::project::PROJECT_RATE;
+    let (audio, _) = hummr_core::synthetic::drum_groove(bpm, 2, 0, 0.0, 0.005, seed, PROJECT_RATE);
+    hummr_core::AudioBuffer::new(audio, PROJECT_RATE)
+}
+
+fn empty_studio() -> Studio {
+    Studio::new(
+        hummr_core::project::Project::new("Empty"),
+        &StudioOptions::default(),
+    )
+}
+
+#[test]
+fn the_first_clip_sets_the_song_tempo() {
+    let mut s = empty_studio();
+    let bpm0 = s.song().bpm;
+    s.add_clip_from_audio("loop", groove(104.0, 1), None, None, 0.0);
+    assert_eq!(s.mode, Mode::Normal);
+    assert!((s.song().bpm - 104.0).abs() <= 1.0, "{}", s.song().bpm);
+    let (msg, level) = s.message.clone().unwrap();
+    assert!(msg.contains("Song tempo set to 104 BPM"), "{msg}");
+    assert_eq!(level, Level::Info);
+    // One undo step for the clip, one for the tempo.
+    press(&mut s, "u");
+    assert_eq!(s.song().bpm, bpm0);
+}
+
+#[test]
+fn an_unsure_first_tempo_says_so() {
+    use hummr_core::project::PROJECT_RATE;
+    use hummr_core::synthetic::{Drum, beatbox};
+    // Hits on only half of the beats at 100 BPM, so the beat is a guess.
+    let spb = 0.6;
+    let hits: Vec<(f64, Drum)> = [0, 1, 4, 6, 8, 9, 12, 15, 16, 17, 20, 22, 24, 25, 28, 31]
+        .iter()
+        .map(|&b| {
+            (
+                f64::from(b) * spb + 0.05,
+                if b % 4 == 0 { Drum::Kick } else { Drum::Snare },
+            )
+        })
+        .collect();
+    let audio = beatbox(&hits, 7, PROJECT_RATE);
+    let mut s = empty_studio();
+    let id = s.add_clip_from_audio(
+        "sparse",
+        hummr_core::AudioBuffer::new(audio, PROJECT_RATE),
+        None,
+        None,
+        0.0,
+    );
+    let clip = s.song().clip(id).unwrap().clone();
+    let est =
+        hummr_core::project::ops::analyze(&clip, s.project.sources.get(&clip.source).unwrap());
+    println!(
+        "sparse hits: {} (confidence {:.2})",
+        est.describe(),
+        est.confidence
+    );
+    assert!(est.has_beat() && !est.is_sure(), "{}", est.describe());
+    let (msg, level) = s.message.clone().unwrap();
+    assert!(msg.contains("not sure"), "{msg}");
+    assert_eq!(level, Level::Warn);
+}
+
+#[test]
+fn a_sample_at_another_tempo_asks_what_to_do() {
+    let mut s = studio(); // 96 BPM
+    s.playhead = 20.0;
+    let id = s.add_clip_from_audio("loop 120", groove(120.0, 2), None, Some(0), 20.0);
+    let Mode::TempoPrompt(p) = s.mode.clone() else {
+        panic!("no prompt: {:?}", s.mode)
+    };
+    assert!((p.bpm - 120.0).abs() < 1.0);
+    assert!(p.rhythmic);
+    let text = screen(&mut s, 100, 30);
+    assert!(text.contains("sounds like 120 BPM (sure)"), "{text}");
+    assert!(text.contains("Change song to 120"), "{text}");
+    // Half/double switch.
+    press(&mut s, "h");
+    assert!(screen(&mut s, 100, 30).contains("Change song to 60"));
+    press(&mut s, "d");
+    // Match to song: cut and snapped to 96 BPM.
+    press(&mut s, "<cr>");
+    assert_eq!(s.mode, Mode::Normal);
+    assert_eq!(s.song().bpm, 96.0);
+    let clip = s.song().clip(id).unwrap().clone();
+    let ClipKind::Sliced { grid, strength, .. } = clip.kind else {
+        panic!("not sliced: {:?}", clip.kind)
+    };
+    assert_eq!((grid, strength), (0.5, 1.0));
+    // Two bars of hits (plus the last hit's ring-out, rounded up to a beat).
+    let len = clip.len_beats(96.0);
+    assert!((8.0..=10.0).contains(&len), "{len} beats");
+    press(&mut s, "u");
+    assert_eq!(s.song().clip(id).unwrap().kind, ClipKind::Audio);
+
+    // Change the song instead.
+    let id = s.add_clip_from_audio("loop 120 b", groove(120.0, 3), None, Some(0), 40.0);
+    press(&mut s, "j<cr>");
+    assert!((s.song().bpm - 120.0).abs() < 1.0);
+    assert_eq!(s.song().clip(id).unwrap().kind, ClipKind::Audio);
+
+    // Esc leaves it as is.
+    let id = s.add_clip_from_audio("loop 150", groove(150.0, 4), None, Some(0), 60.0);
+    assert!(matches!(s.mode, Mode::TempoPrompt(_)));
+    let before = s.song().clone();
+    press(&mut s, "<esc>");
+    assert_eq!(s.mode, Mode::Normal);
+    assert_eq!(*s.song(), before);
+    assert_eq!(s.song().clip(id).unwrap().kind, ClipKind::Audio);
+}
+
+#[test]
+fn half_or_same_tempo_does_not_ask() {
+    let mut s = studio(); // 96 BPM
+    s.add_clip_from_audio("same", groove(97.0, 5), None, Some(0), 20.0);
+    assert_eq!(s.mode, Mode::Normal);
+    s.add_clip_from_audio("double", groove(192.0, 6), None, Some(0), 40.0);
+    assert_eq!(s.mode, Mode::Normal, "{:?}", s.message);
+    // A one-shot has no tempo.
+    press(&mut s, "i<cr>");
+    assert_eq!(s.mode, Mode::Normal);
+}
