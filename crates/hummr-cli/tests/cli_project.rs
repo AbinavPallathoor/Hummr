@@ -242,3 +242,46 @@ fn help_says_hummr_alone_opens_or_starts_a_song() {
     assert!(out.contains("open or start a song here"), "{out}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn rms_db(x: &[f32]) -> f32 {
+    let ms = x.iter().map(|v| v * v).sum::<f32>() / x.len().max(1) as f32;
+    10.0 * ms.max(1e-12).log10()
+}
+
+#[test]
+fn demo_writes_listenable_wavs() {
+    let dir = tmp_dir("demo");
+    let (ok, out, err) = hummr(&dir, &["demo"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("Listen first"), "{out}");
+    let demo = dir.join("demo");
+    let about = std::fs::read_to_string(demo.join("ABOUT.txt")).unwrap();
+    let files: Vec<&str> = about
+        .lines()
+        .map(|l| l.split_whitespace().next().unwrap())
+        .collect();
+    assert_eq!(files.len(), 21);
+    for f in &files {
+        let a = wav::read_mono(&demo.join(f)).unwrap();
+        let peak = a.samples.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let secs = a.duration_seconds();
+        println!("{f}: {secs:.1} s, peak {:.1} dBFS", 20.0 * peak.log10());
+        assert!(secs > 1.0, "{f} is {secs} s");
+        assert!(peak > 0.05 && peak <= 1.0, "{f} peak {peak}");
+        assert!(a.samples.iter().all(|v| v.is_finite()));
+    }
+    // Cleanup: the hiss-only lead-in gets much quieter.
+    let lead = |f: &str| {
+        let a = wav::read_mono(&demo.join(f)).unwrap();
+        let n = (0.25 * f64::from(a.sample_rate)) as usize;
+        rms_db(&a.samples[..n])
+    };
+    let (before, after) = (lead("20-clean-before.wav"), lead("21-clean-after.wav"));
+    println!("hiss before {before:.1} dB, after {after:.1} dB");
+    assert!(
+        before - after >= 12.0,
+        "hiss only {:.1} dB lower",
+        before - after
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

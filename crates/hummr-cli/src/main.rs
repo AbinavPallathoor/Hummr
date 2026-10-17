@@ -1,6 +1,7 @@
 //! `hummr`: Hummr command-line interface.
 
 mod clean;
+mod demo;
 mod detect;
 mod project;
 mod record;
@@ -52,6 +53,8 @@ enum Command {
     Snap(snap::Args),
     /// Turn down steady background hiss or hum in a recording.
     Clean(clean::Args),
+    /// Write example WAVs into ./demo/ to hear what each feature does.
+    Demo(demo::Args),
 }
 
 #[derive(Args, Clone, Default)]
@@ -106,6 +109,7 @@ fn main() -> ExitCode {
         Some(Command::Detect(args)) => detect::run(args),
         Some(Command::Snap(args)) => snap::run(args),
         Some(Command::Clean(args)) => clean::run(args),
+        Some(Command::Demo(args)) => demo::run(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
